@@ -25,25 +25,6 @@ ESP_EEPROM.h lib dependency:
 #include <ESPAsyncWebServer.h>
 // enter your WiFi configuration below
 
-//#define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
-#ifdef DEBUG
-  #define DEBUG_PRINTLN(x)  Serial.println(x)
-  #define DEBUG_PRINT(x)  Serial.print(x)
-  #define DEBUG_FLUSH Serial.flush()
-  #include <SoftwareSerial.h>
-  SoftwareSerial sim800(rxPin,txPin);
-#else
-  #define DEBUG_PRINTLN(x)
-  #define DEBUG_PRINT(x)
-  #define DEBUG_FLUSH
-  HardwareSerial sim800(UART0);
-#endif
-
-//#define CAR_ALARM  //it's a Car Alarm, with presence key and blinking led
-#ifdef CAR_ALARM
-#else
-#endif
-
 const char* AP_SSID = "ESP8266_Wifi";  // AP SSID here
 const char* AP_PASS = "123456789";  // AP password here
 const char* PARAM_INPUT_1 = "input1";
@@ -177,20 +158,18 @@ struct propAlarm {  //361     MEDIDO PACKED:  //  MEDIDO SIN PACKED: 386    __at
   propCaller Caller;  //160
 } alarmConfig;
 
+/*
 uint32_t timeout = 30E3;  // 30 second timeout on the WiFi connectio
 const uint32_t blinkDelay = 100; // fast blink rate for the LED when waiting for the user
 //esp8266::polledTimeout::periodicMs blinkLED(blinkDelay);  // LED blink delay without delay()
 esp8266::polledTimeout::oneShotMs altDelay(blinkDelay);  // tight loop to simulate user code
 esp8266::polledTimeout::oneShotMs wifiTimeout(timeout);  // 30 second timeout on WiFi connection
 // use fully qualified type and avoid importing all ::esp8266 namespace to the global namespace
-
+*/
 unsigned long startT;
 const String PHONE = "+543414681709";
-#define rxPin 5 //D1 = GPIO5  al tx del SIM800
-#define txPin 4 //D2 = GPIO4  al rx del SIM800
 String smsStatus,senderNumber,receivedDate,msg;
 static const uint8_t _responseInfoSize = 12; 
-//const char*
 const String _responseInfo[_responseInfoSize] =
     {"ERROR",
     "NOT READY",
@@ -204,15 +183,13 @@ const String _responseInfo[_responseInfoSize] =
     "CLOSED",
     ">",
     "OK"};
-  // some private function 
-//void _flushSerial(uint16_t timeout);
 byte _checkResponse(uint16_t timeout);
-String rta;
+//String rta;
 //SIM800 status:
-#define DISCONNECTED 0
-#define CONNECTING 1
-#define WAITING 2
-byte Sim800_Status = DISCONNECTED;
+//#define DISCONNECTED 0
+//#define CONNECTING 1
+//#define WAITING 2
+//byte Sim800_Status = DISCONNECTED;
 static String Sim800_Buffer_Array[50];
 static int Sim800_Buffer_Count = 0;
 String DTMFs = "";
@@ -220,22 +197,39 @@ bool waitingCPAS = false;
 bool sleepTime = false;
 
 //ESP8266 NodeMCU Wemos D1 Mini pinout:
-// D1/GPIO5, D3/GPIO0, D4/GPIO2 (built-in LED), D6/GPIO12, D7/GPIO13
-//#define LED D4
-//#define WAKE_UP_PIN D3  //(D7) you can use any GPIO for WAKE_UP_PIN except for D0/GPIO16 as it doesn't support interrupts
+// D0/GPIO16 (no interrupts to wake up), D1/GPIO5, D2/GPIO4, D3/GPIO0, D4/GPIO2 (built-in LED), D6/GPIO12, D7/GPIO13
+
+//#define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
+#ifdef DEBUG
+  #define DEBUG_PRINTLN(x)  Serial.println(x)
+  #define DEBUG_PRINT(x)  Serial.print(x)
+  #define DEBUG_FLUSH Serial.flush()
+  #include <SoftwareSerial.h>
+  #define rxPin D1 //D1 = GPIO5  al tx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
+  #define txPin D2 //D2 = GPIO4  al rx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
+  SoftwareSerial sim800(rxPin,txPin);
+  const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D5, D5, D5, D6, D7}; //D1 and D2 needed for Cx with SIM800, so D5 used to replace them
+#else
+  #define DEBUG_PRINTLN(x)
+  #define DEBUG_PRINT(x)
+  #define DEBUG_FLUSH
+  HardwareSerial sim800(UART0);
+  const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D1, D2, D5, D6, D7};
+#endif
 #define SIM800_RING_RESET_PIN D3    //input and output pin, used to reset the sim800
-const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D1, D2, D5, D6, D7};
 const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};
+const uint8_t SIREN_DEF[SIZEOF_SIREN] = {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW
 //ADC_MODE(ADC_VCC);  //don't connect anything to the analog input pin(s)! allows you to monitor the internal VCC level; it varies with WiFi load
 int ZoneStatus[SIZEOF_ZONE];
 
-
+//#define CAR_ALARM  //it's a Car Alarm, with presence key and blinking led
+#ifdef CAR_ALARM
+#else
+#endif
 
 //Visual Studio Code needs the definition of all functions (but setup and loop):
-//void wakeupCallback();
 void Sim800_Buffer_Add(String item);
 String Sim800_Buffer_Read();
-//void wakeupCallback();
 bool Sim800_Connect();
 bool Sim800_enterSleepMode();
 bool Sim800_disableSleep();
@@ -247,11 +241,9 @@ void parseData(String buff);
 void extractSms(String buff);
 void doAction();
 void Espera(unsigned int TiempoMillis);
-//void Sleep_Forced_NotWorking();
 void Sleep_Forced();
 void readVoltage();
 void printMillis();
-//void initWiFi();
 void WakeUpCallBackFunction(void);
 void ConfigDefault(propAlarm &pa);
 void ConfigWifi();
@@ -260,14 +252,8 @@ String processor(const String& var);
 void ConfigDefault(propAlarm &pa);
 void ConfigToString(propAlarm &pa, String &str);
 void StringToConfig(String &str, propAlarm &pa);
-void InsertLastLine(String description, String &text, String inserted);/*
-void InsertLastLine(String &text, uint16_t inserted);
-void InsertLastLine(String &text, bool inserted);
-void InsertLastLine(String &text, char *inserted);*/
+void InsertLastLine(String description, String &text, String inserted);
 void ExtractFirstLine(String description, String &text, String &extracted);
-/*void ExtractFirstLine(String &text, uint16_t &extracted);
-void ExtractFirstLine(String &text, bool &extracted);
-void ExtractFirstLine(String &text, char* extracted);*/
 void InsertExtractLine(String description, String &text, String &ins_ext, bool insert);
 void InsertExtractLine(String description, String &text, uint16_t &ins_ext, bool insert);
 void InsertExtractLine(String description, String &text, bool &ins_ext, bool insert);
@@ -304,7 +290,6 @@ void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
     InsertExtractLine(temp + " Max Duration secs", str, pa.Zone[i].MaxDurationSecs, toString);
   }
   for(unsigned int i = 0; i < SIZEOF_SIREN; i++){
-    //temp = "Siren " + i;
     temp = "Siren " + String(i);
     InsertExtractLine(temp + " Name", str, pa.Siren[i].Name, toString);
     InsertExtractLine(temp + " Enabled", str, pa.Siren[i].Enabled, toString);
@@ -514,8 +499,10 @@ void setup() {
   //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_GPIO1);
   PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
   //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_GPIO3);
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO5_U, FUNC_GPIO5);
+  #ifndef DEBUG   //when debuging, D1 and D2 are used to comunicate to SIM800
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO5_U, FUNC_GPIO5);
+  #endif
   //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_CLK_U, FUNC_GPIO6);
   //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA0_U, FUNC_GPIO7);
   //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA1_U, FUNC_GPIO8);
@@ -535,26 +522,25 @@ void setup() {
 
   for (int i = 0; i < SIZEOF_SIREN; i++)
     pinMode(GPIO_ID_PIN(SIREN_PIN[i]), OUTPUT);
-  
+
+  for (int i = 0; i < SIZEOF_SIREN; i++)
+    digitalWrite(GPIO_ID_PIN(SIREN_PIN[i]), SIREN_DEF[i]);
+
   //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
   pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP); //to read SIM800 RING, later will be set temporarily as output to reset SIM800
 
-  //pinMode(LED, OUTPUT);  // activity and status indicator
-  //pinMode(WAKE_UP_PIN, INPUT_PULLUP);  //interrupt for Forced Light Sleep ********
-  //digitalWrite(LED, LOW);  // turn on the LED
-
-#ifdef DEBUG
-  Serial.begin(DEBUGbaudrate);
-  //AGREGADO:
-  while(!Serial)
-  {
-    yield();
-  }  
-  DEBUG_PRINTLN();
-  DEBUG_PRINT(F("\nReset reason = "));
-  String resetCause = ESP.getResetReason();
-  DEBUG_PRINTLN(resetCause);
-#endif
+  #ifdef DEBUG
+    Serial.begin(DEBUGbaudrate);
+    //AGREGADO:
+    while(!Serial)
+    {
+      yield();
+    }  
+    DEBUG_PRINTLN();
+    DEBUG_PRINT(F("\nReset reason = "));
+    String resetCause = ESP.getResetReason();
+    DEBUG_PRINTLN(resetCause);
+  #endif
 
   //Initialize config if EEPROM is empty
   DEBUG_PRINT(F("\nalarmConfig Size= "));
@@ -590,6 +576,7 @@ void setup() {
 
   ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
   DEBUG_PRINTLN(F("Wifi Conectado"));
+
 }
 
 void loop() {
