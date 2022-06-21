@@ -39,6 +39,11 @@ ESP_EEPROM.h lib dependency:
   HardwareSerial sim800(UART0);
 #endif
 
+//#define CAR_ALARM  //it's a Car Alarm, with presence key and blinking led
+#ifdef CAR_ALARM
+#else
+#endif
+
 const char* AP_SSID = "ESP8266_Wifi";  // AP SSID here
 const char* AP_PASS = "123456789";  // AP password here
 const char* PARAM_INPUT_1 = "input1";
@@ -49,13 +54,12 @@ AsyncWebServer server(80);
 //IPAddress subnet(0, 0, 0, 0);
 //IPAddress dns1(0, 0, 0, 0);
 //IPAddress dns2(0, 0, 0, 0);
-// HTML web page to handle 3 input fields (input1, input2, input3)
 //submitMessage():  when you submit the values, a window opens saying the value was saved, instead of being redirected to another page.
 //After that pop up, it reloads the web page so that it displays the current values.
 //The processor() is responsible for searching for placeholders in the HTML text and replacing them with actual values saved
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html><head>
-  <title>ESP Input Form</title>
+  <title>Alarm Configuration</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <script>
     function submitMessage() {
@@ -64,19 +68,28 @@ const char index_html[] PROGMEM = R"rawliteral(
     }
   </script>  
   </head><body>
+  <form action="/pass" target="hidden-form">
+    Type Admin Password: <input type="number" name="HTMLAdminPass">
+    <input type="submit" value="Submit">
+  </form><br>
+  <iframe style="display:none" name="hidden-form"></iframe>
+</body></html>)rawliteral";
+const char config_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html><head>
+  <title>Alarm Config Form</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <script>
+    function submitMessage() {
+      alert("Configuration Saved!");
+      setTimeout(function(){ document.location.reload(false); }, 500);   
+    }
+  </script>  
+  </head><body>
   <form action="/get" target="hidden-form">
     Configuration:<br>
-    <textarea name="input1" style="height: 800px; width: 300px;">%input1%</textarea><br>
+    <textarea name="HTMLConfig" style="height: 800px; width: 300px;">%HTMLConfig%</textarea><br>
     <input type="submit" value="Submit" onclick="submitMessage()">
   </form><br>
-  <form action="/get" target="hidden-form">
-    input2 (current value %input2%): <input type="number" name="input2">
-    <input type="submit" value="Submit">
-  </form><br>
-  <form action="/get" target="hidden-form">
-    input3: <input type="text" name="input3">
-    <input type="submit" value="Submit">
-  </form>
   <iframe style="display:none" name="hidden-form"></iframe>
 </body></html>)rawliteral";
 //In this case, the target attribute and an <iframe> are used so that you remain on the same page after submitting the form.
@@ -84,9 +97,8 @@ const char index_html[] PROGMEM = R"rawliteral(
 //The onclick=”submitMessage()” calls the submitMessage() JavaScript function after clicking the “Submit” button.
 // HTML web page to handle 3 input fields (inputString, inputInt, inputFloat)
 //The action attribute specifies where to send the data inserted on the form after pressing submit. In this case, it makes an HTTP GET request to /get?input1=value. The value refers to the text you enter in the input field.
-
-
-
+String HTMLAdminPass = "";
+String HTMLConfig = "";
 
 #define TIMEOUT 99
 #define ERROR 0
@@ -118,6 +130,16 @@ const char index_html[] PROGMEM = R"rawliteral(
 #define DEFAULT_OPPASS "1234"     //must be SIZEOF_PASS
 #define MEMCHECK "A9"             //to ckech if the EEPROM has valid data or it is a new chip
 
+/*
+First Advise Duration: segundos  (tiempo del pulso se activación de sirenas dentro del Delay On. ej para sensors de presencia, corto aviso inicial antes del disparo luego de cumplirse el Delay On) (si no es cero, el sensor debe volver a activarse luego de Delay On para disparar sirenas)
+First Advise Reset: segundos  (tiempo desde la primer activación para olvidar que se activó)
+Delay On: segundos (demora desde activación del sensor hasta disparo de las sirenas) (si First Advise Duration no es 0, debe volver a activarse para disparar sirenas)
+Delay Off: segundos (demora desde desactivación del sensor hasta apagado de las sirenas)
+Min Duration: segundos (mínimo tiempo de activación de sirenas luego del disparo)
+Max Duration: segundos (máximo tiempo de activación de sirenas luego del disparo)
+Enabled: on, off
+Auto Disable: on, off (en caso de activaciones repetidas)
+*/
 struct propZone { //26      __attribute((__packed__))
   char Name[SIZEOF_NAME+1];  //11
   bool Enabled;   //1
@@ -129,16 +151,6 @@ struct propZone { //26      __attribute((__packed__))
   uint16_t DelayOffSecs;
   uint16_t MinDurationSecs;
   uint16_t MaxDurationSecs;
-/*
-First Advise Duration: segundos  (tiempo del pulso se activación de sirenas dentro del Delay On. ej para sensors de presencia, corto aviso inicial antes del disparo luego de cumplirse el Delay On) (si no es cero, el sensor debe volver a activarse luego de Delay On para disparar sirenas)
-First Advise Reset: segundos  (tiempo desde la primer activación para olvidar que se activó)
-Delay On: segundos (demora desde activación del sensor hasta disparo de las sirenas) (si First Advise Duration no es 0, debe volver a activarse para disparar sirenas)
-Delay Off: segundos (demora desde desactivación del sensor hasta apagado de las sirenas)
-Min Duration: segundos (mínimo tiempo de activación de sirenas luego del disparo)
-Max Duration: segundos (máximo tiempo de activación de sirenas luego del disparo)
-Enabled: on, off
-Auto Disable: on, off (en caso de activaciones repetidas)
-*/
 };
 struct propSiren {  //19      __attribute((__packed__))
   char Name[SIZEOF_NAME+1];  //11 1 more for the “null-terminated” char
@@ -213,9 +225,6 @@ static int Sim800_Buffer_Count = 0;
 String DTMFs = "";
 bool waitingCPAS = false;
 bool sleepTime = false;
-String _input1 ="";
-String _input2 ="";
-String _input3 ="";
 
 //ESP8266 NodeMCU Wemos D1 Mini pinout:
 // D1/GPIO5, D3/GPIO0, D4/GPIO2 (built-in LED), D6/GPIO12, D7/GPIO13
@@ -271,15 +280,6 @@ void InsertExtractLine(String description, String &text, uint16_t &ins_ext, bool
 void InsertExtractLine(String description, String &text, bool &ins_ext, bool insert);
 void InsertExtractLine(String description, String &text, char* ins_ext, bool insert);
 void Read_Zones_State();
-
-/*void wakeupCallback() {  // unlike ISRs, you can do a print() from a callback function
-  //The hardware wake-up process lasts for approximately 3 ms.
-  //However, since the Wi-Fi initialization process takes about 1 ms, it is recommended that
-  //users operate the chip after 5 ms. 
-  //testPoint_LOW;  // testPoint tracks latency from WAKE_UP_PIN LOW to testPoint LOW
-  printMillis();  // show time difference across sleep; millis is wrong as the CPU eventually stops
-  DEBUG_PRINTLN(F("Woke from Light Sleep - this is the callback"));
-}*/
 
 void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
   String temp;
@@ -359,15 +359,6 @@ void InsertExtractLine(String description, String &text, char* ins_ext, bool ins
 void InsertLastLine(String description, String &text, String inserted){
   text += description + ": " + inserted + "\r";
 }
-/*void InsertLastLine(String &text, uint16_t inserted){
-  text += String(inserted) + "\r";
-}
-void InsertLastLine(String &text, bool inserted){
-  text += String(inserted) + "\r";
-}
-void InsertLastLine(String &text, char *inserted){
-  text += String(inserted) + "\r";
-}*/
 
 void ExtractFirstLine(String description, String &text, String &extracted){
   int i = text.indexOf(description);
@@ -375,25 +366,8 @@ void ExtractFirstLine(String description, String &text, String &extracted){
   int j = text.indexOf("\r", i);
   extracted = text.substring(i + 1, j);
   extracted.trim();
-  //int i = text.indexOf("\r");
-  //extracted = text.substring(0, i);
-  //text.remove(0, i+2);
 }
-/*void ExtractFirstLine(String &text, uint16_t &extracted){
-  int i = text.indexOf("\r");
-  extracted = (uint16_t)text.substring(0, i).toInt();
-  text.remove(0, i+2);
-}
-void ExtractFirstLine(String &text, bool &extracted){
-  int i = text.indexOf("\r");
-  extracted = (bool)text.substring(0, i);
-  text.remove(0, i+2);
-}
-void ExtractFirstLine(String &text, char* extracted){
-  int i = text.indexOf("\r");
-  text.substring(0, i).toCharArray(extracted, i+1);
-  text.remove(0, i+2);
-}*/
+
 void ConfigDefault(propAlarm &pa){
   String temp;
   pa.MemCheck[0] = MEMCHECK[0];
@@ -453,8 +427,6 @@ void ConfigDefault(propAlarm &pa){
     DEBUG_PRINT(pa.Caller.CALLArmDisarmPhone[0].Number[i]);
   }
   DEBUG_PRINTLN("-");
-  //-ona(7 cuadraditos)-
-  //-11(3 cuadraditos)-
   //String variable is char array. You can directly operate on string like a char array:
   //String abc="ABCDEFG";
   //Serial.print(abc[2]); //Prints 'C'
@@ -479,72 +451,71 @@ void ConfigToEEPROM(propAlarm &pa){
 }
 
 void ConfigWifi(){
-    // Remove the password parameter, if you want the AP (Access Point) to be open
   DEBUG_PRINT(F("Setting AP (Access Point)…"));
-
   //set-up the custom IP address ***** ESTO QUIZAS NO HAGA FALTA
-//  WiFi.mode(WIFI_AP_STA);
-//  WiFi.softAPConfig(webserver_IP, webserver_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00  
-	
-  WiFi.softAP(AP_SSID, AP_PASS);
+  //WiFi.mode(WIFI_AP_STA);
+  //WiFi.softAPConfig(webserver_IP, webserver_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00  
+  WiFi.softAP(AP_SSID, AP_PASS);  //Remove the password parameter, if you want the AP (Access Point) to be open
   Espera(100);
 
-  IPAddress IP = WiFi.softAPIP();
+  //IPAddress IP = ;
   DEBUG_PRINT(F("Soft AP IP address: "));
-  DEBUG_PRINTLN(IP);
-
-  // Print ESP8266 Local IP Address
-  DEBUG_PRINT(F("Local IP address: "));
+  DEBUG_PRINTLN(WiFi.softAPIP());
+  
+  DEBUG_PRINT(F("Local IP address: "));   // Print ESP8266 Local IP Address
   DEBUG_PRINTLN(WiFi.localIP());
 
-  // Route for root / web page
-  // Send web page with input fields to client
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){  //Route for root / web page
     request->send_P(200, "text/html", index_html, processor);
   });
-  // Send a GET request to <ESP_IP>/get?input1=<inputMessage>
-  server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request){
-    if (request->hasParam("input1")) {
-      _input1 = request->getParam("input1")->value();
-      DEBUG_PRINTLN(F("input1 = ") + _input1);
-      ConfigStringCopy(alarmConfig, _input1, false);    //Parse String to alarmConfig
-      ConfigToEEPROM(alarmConfig);                      //Write to EEPROM
-      ConfigStringCopy(alarmConfig, _input1, true);    //Parse alarmConfig to String
+
+  server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request){  //Config page /config
+    request->send_P(200, "text/html", config_html, processor);
+  });
+
+  server.on("/pass", HTTP_GET, [](AsyncWebServerRequest *request){ //Send a GET request to <ESP_IP>/pass?HTMLAdminPass=<inputMessage>
+    if (request->hasParam("HTMLAdminPass")) {
+      HTMLAdminPass = request->getParam("HTMLAdminPass")->value();
+      DEBUG_PRINTLN(F("HTMLAdminPass = ") + HTMLAdminPass);
     }
-    // GET input2 value on <ESP_IP>/get?input2=<inputMessage>
-    else if (request->hasParam("input2")) {
-      _input2 = request->getParam("input2")->value();
-      DEBUG_PRINTLN(F("input2 = ") + _input2);
+    if (HTMLAdminPass == alarmConfig.AdminPass){
+      request->send(200, "text/html", "Admin Password ok.<br><a href=\"/config\">Go to Config Page</a>");
+    } else {
+      request->send(200, "text/html", "Admin Password NOT OK.<br><a href=\"/\">Return to Home Page</a>");
     }
     //request->send_P(200, "text/plain", String(t).c_str());
-    request->send(200, "text/text", _input1);  //With submitMessage() script
+  });
+
+  server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request){ //Send a GET request to <ESP_IP>/get?input1=<inputMessage>
+    if (request->hasParam("HTMLConfig")) {
+      HTMLConfig = request->getParam("HTMLConfig")->value();
+      DEBUG_PRINTLN(F("HTMLConfig = ") + _input1);
+      ConfigStringCopy(alarmConfig, HTMLConfig, false);    //Parse String to alarmConfig
+      ConfigToEEPROM(alarmConfig);                      //Write to EEPROM
+      ConfigStringCopy(alarmConfig, HTMLConfig, true);    //Parse alarmConfig to String
+    }
+    //request->send_P(200, "text/plain", String(t).c_str());
+    request->send(200, "text/text", HTMLConfig);  //With submitMessage() script
     //Now I use the script submitMessage() so should not move to another page like this:
     //request->send(200, "text/html", "Values Updated. <br><a href=\"/\">Return to Home Page</a>");
   });
   server.onNotFound(notFound);
-  // Start server
-  server.begin();
+  server.begin(); // Start server
 }
-
 void notFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
 
 // Replaces placeholder with stored values
 String processor(const String& var){
-  //Serial.println(var);
-  if(var == "input1"){
-    return _input1;
+  if(var == "HTMLAdminPass"){
+    return HTMLAdminPass;
   }
-  else if(var == "input2"){
-    return _input2;
-  }
-  else if(var == "input3"){
-    return _input3;
+  else if(var == "HTMLConfig"){
+    return HTMLConfig;
   }
   return String();
 }
-
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -629,7 +600,7 @@ void setup() {
   DEBUG_PRINT(alarmConfig.MemCheck[0]);
   DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
 
-  ConfigStringCopy(alarmConfig, _input1, true);
+  ConfigStringCopy(alarmConfig, HTMLConfig, true);
 }
 
 void loop() {
