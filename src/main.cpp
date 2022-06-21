@@ -61,18 +61,11 @@ const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html><head>
   <title>Alarm Configuration</title>
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <script>
-    function submitMessage() {
-      alert("Saved value to ESP SPIFFS");
-      setTimeout(function(){ document.location.reload(false); }, 500);   
-    }
-  </script>  
   </head><body>
   <form action="/pass" target="hidden-form">
-    Type Admin Password: <input type="number" name="HTMLAdminPass">
+    Type Admin Password: <input type="number" name="htmladminpass">
     <input type="submit" value="Submit">
   </form><br>
-  <iframe style="display:none" name="hidden-form"></iframe>
 </body></html>)rawliteral";
 const char config_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE HTML><html><head>
@@ -470,34 +463,30 @@ void ConfigWifi(){
   });
 
   server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request){  //Config page /config
-    request->send_P(200, "text/html", config_html, processor);
+    if (HTMLAdminPass == String(alarmConfig.AdminPass))
+      request->send_P(200, "text/html", config_html, processor);
   });
 
   server.on("/pass", HTTP_GET, [](AsyncWebServerRequest *request){ //Send a GET request to <ESP_IP>/pass?HTMLAdminPass=<inputMessage>
-    if (request->hasParam("HTMLAdminPass")) {
-      HTMLAdminPass = request->getParam("HTMLAdminPass")->value();
-      DEBUG_PRINTLN(F("HTMLAdminPass = ") + HTMLAdminPass);
+    if (request->hasParam("htmladminpass")) {
+      HTMLAdminPass = request->getParam("htmladminpass")->value();
+      DEBUG_PRINTLN(F("htmladminpass = ") + HTMLAdminPass);
     }
-    if (HTMLAdminPass == alarmConfig.AdminPass){
+    if (HTMLAdminPass == String(alarmConfig.AdminPass)){
       request->send(200, "text/html", "Admin Password ok.<br><a href=\"/config\">Go to Config Page</a>");
     } else {
       request->send(200, "text/html", "Admin Password NOT OK.<br><a href=\"/\">Return to Home Page</a>");
     }
-    //request->send_P(200, "text/plain", String(t).c_str());
   });
 
   server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request){ //Send a GET request to <ESP_IP>/get?input1=<inputMessage>
-    if (request->hasParam("HTMLConfig")) {
+    if (request->hasParam("HTMLConfig") && HTMLAdminPass == String(alarmConfig.AdminPass)) {
       HTMLConfig = request->getParam("HTMLConfig")->value();
-      DEBUG_PRINTLN(F("HTMLConfig = ") + _input1);
+      DEBUG_PRINTLN(F("HTMLConfig = ") + HTMLConfig);
       ConfigStringCopy(alarmConfig, HTMLConfig, false);    //Parse String to alarmConfig
       ConfigToEEPROM(alarmConfig);                      //Write to EEPROM
       ConfigStringCopy(alarmConfig, HTMLConfig, true);    //Parse alarmConfig to String
     }
-    //request->send_P(200, "text/plain", String(t).c_str());
-    request->send(200, "text/text", HTMLConfig);  //With submitMessage() script
-    //Now I use the script submitMessage() so should not move to another page like this:
-    //request->send(200, "text/html", "Values Updated. <br><a href=\"/\">Return to Home Page</a>");
   });
   server.onNotFound(notFound);
   server.begin(); // Start server
@@ -508,7 +497,7 @@ void notFound(AsyncWebServerRequest *request) {
 
 // Replaces placeholder with stored values
 String processor(const String& var){
-  if(var == "HTMLAdminPass"){
+  if(var == "htmladminpass"){
     return HTMLAdminPass;
   }
   else if(var == "HTMLConfig"){
@@ -571,9 +560,6 @@ void setup() {
   DEBUG_PRINT(F("\nalarmConfig Size= "));
   DEBUG_PRINTLN(sizeof(alarmConfig));
 
-  ConfigWifi();
-  DEBUG_PRINTLN(F("Wifi Conectado"));
-
   smsStatus = "";
   senderNumber="";
   receivedDate="";
@@ -601,6 +587,9 @@ void setup() {
   DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
 
   ConfigStringCopy(alarmConfig, HTMLConfig, true);
+
+  ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
+  DEBUG_PRINTLN(F("Wifi Conectado"));
 }
 
 void loop() {
