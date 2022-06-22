@@ -189,6 +189,8 @@ byte _checkResponse(uint16_t timeout);
 bool ESP_WIFI = false;      //Wifi enabled during start up (120 secs)
 bool ESP_DISARMED = false;  //Alarm disarmed
 bool ESP_ARMED = false;     //Alarm armed
+bool ESP_FIRSTDELAY = false; //Alarm first delay (if zone triggers again, it will be fired)
+uint32_t ESP_FIRSTDELAY_MILLIS; //Alarm first delay millis start
 bool ESP_FIREDELAY = false; //Alarm fired delay (delayed zone activated)
 uint32_t ESP_FIREDELAY_MILLIS; //Alarm fired delay millis start
 bool ESP_FIRED = false;     //Alarm fired (siren activated)
@@ -198,10 +200,12 @@ bool ESP_FIREDTOUT = false; //Alarm fired time out (siren silenced after max sir
 bool ReadyToSleep = false;
 
 //SIM800 status:
-bool SIM_INACTIVE = false;       //SIM800 not responding AT commands
-bool SIM_ERROR = false;       //SIM800 not responding AT commands
-bool SIM_SLEEPING = false;    //SIM800 sleeping
-bool SIM_CALLING = false;     //SIM800 in a call
+bool SIM_RINGING = false;       //SIM800 RI pin is active
+bool SIM_ONCALL = false;        //SIM800 is on call
+//bool SIM_INACTIVE = false;       //SIM800 not responding AT commands
+//bool SIM_ERROR = false;       //SIM800 not responding AT commands
+//bool SIM_SLEEPING = false;    //SIM800 sleeping
+//bool SIM_CALLING = false;     //SIM800 in a call
 //uint8_t SIMStatus = SIM_INACTIVE;
 
 static String Sim800_Buffer_Array[50];
@@ -240,7 +244,7 @@ const uint8_t SIREN_DEF[SIZEOF_SIREN] = {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, 
 bool SIREN_FORCED[SIZEOF_SIREN]; //if forced, the output status will be overriden to the oposite of SIREN_DEF despite the alarm status.
 
 //ADC_MODE(ADC_VCC);  //don't connect anything to the analog input pin(s)! allows you to monitor the internal VCC level; it varies with WiFi load
-int ZoneStatus[SIZEOF_ZONE];
+//int ZoneStatus[SIZEOF_ZONE];
 
 //#define CAR_ALARM  //it's a Car Alarm, with presence key and blinking led
 #ifdef CAR_ALARM
@@ -602,7 +606,9 @@ void setup() {
 
 void loop() {
   String readstr = "";
+  bool readyToArm = Read_Zones_State();
 
+  /*
   //Configuring the ESP to be able to LIGHT SLEEP:
   if (!ReadyToSleep && RTCmillis() > 60000)
     Sleep_Prepare();
@@ -619,37 +625,20 @@ void loop() {
     waitingCPAS = false;          //reseteo porque ya hubo respuesta
   if (sleepTime) { //if () (millis() - startT > 25000) {
     sleepTime = false;
-
     server.end(); //Ends the AP Web Server, as configuration is only at startup.
     delay(10);
     Espera(500);
-
-//    Sim800_enterSleepMode();      HABILITAT ESTOOO!!!
-    
-    
+    Sim800_enterSleepMode();
     //sim800.end();
     Espera(500);
-    
     //disable all timers
-
-  //Set the pins with an output status to input status, i.e., MTDO, U0TXD and GPIO0, before enabling Lightsleep to eliminate the leakage current, so that the power consumption becomes even lower.
-    //Sleep_Forced();
-    
     //Espera(5000);
     Sleep_Forced();
-    //sim800.begin(SIM800baudrate);
-    //while(!sim800)
-    //{
-    //  yield();
-    //}      
-    //Espera(100);
-
     Sim800_disableSleep();
-
     //revisar si estoy en una llamada o si llegó un nuevo mensaje
     startT = millis();
     waitingCPAS = false;
-  }
+  }*/
   //if (blinkLED)
   //  digitalWrite(LED, !digitalRead(LED));  // toggle the activity LED
   while(sim800.available()){
@@ -966,6 +955,8 @@ void Sleep_Prepare(){
 }
 
 void Sleep_Forced() {
+  //Set the pins with an output status to input status, i.e., MTDO, U0TXD and GPIO0, before enabling Lightsleep to eliminate the leakage current, so that the power consumption becomes even lower.
+
   DEBUG_PRINTLN(F("Going to Sleep at ms: ") + String(RTCmillis()));
   DEBUG_FLUSH;
 
@@ -1012,22 +1003,42 @@ bool Read_Zones_State(){
     if (alarmConfig.Zone[i].Enabled && !ZONE_DISABLED[i]){
       s = digitalRead(GPIO_ID_PIN(ZONE_PIN[i]));
       if ((alarmConfig.Zone[i].TriggerNC && s == HIGH) || (!alarmConfig.Zone[i].TriggerNC && s == LOW)){
-        zonesOk = true;
-        if (ZONE_STATE[i] != s){  //Zone state changed
-          if (ESP_ARMED){
-            if (!ESP_FIREDELAY){
-              ESP_FIREDELAY = true;
-              ESP_FIREDELAY_MILLIS = RTCmillis();
+        zonesOk = false;
+        if (ESP_ARMED && !ESP_FIRED){
+          if (ESP_FIREDELAY){                                           //Was previously triggered a delayed zone
+            if ((RTCmillis() - ESP_FIREDELAY_MILLIS)/1000 > alarmConfig.Zone[i].DelayOnSecs){
+              ESP_FIRED = true;
+              ESP_FIRED_MILLIS = RTCmillis();
             }
+          } else if (alarmConfig.Zone[i].FirstAdviseDurationSecs > 0){  //Zone with first advise. Needs to be triggering at least FirstAdviseDurationSecs, after that the alarm will be fired
+            if (!ESP_FIRSTDELAY){                   //first advise trigger
+              ESP_FIRSTDELAY = true;
+              ESP_FIRSTDELAY_MILLIS = RTCmillis();
+            } else if ((RTCmillis() - ESP_FIRSTDELAY_MILLIS)/1000 > alarmConfig.Zone[i].FirstAdviseResetSecs){
+              ESP_FIRSTDELAY = false;               //first advise expired
+            } else if ((RTCmillis() - ESP_FIRSTDELAY_MILLIS)/1000 > alarmConfig.Zone[i].FirstAdviseDurationSecs){
+              ESP_FIRED = true;                     //first advise fires alarm
+              ESP_FIRED_MILLIS = RTCmillis();
+            }
+          } else if (alarmConfig.Zone[i].DelayOnSecs > 0){              //Zone with delay on
+            ESP_FIREDELAY = true;
+            ESP_FIREDELAY_MILLIS = RTCmillis();
+          } else {                                                      //No delay on
+            ESP_FIRED = true;
+            ESP_FIRED_MILLIS = RTCmillis();
           }
+        }
+        if (ESP_ARMED && ZONE_STATE[i] != s){       //Zone had a new trigger -> register it
+
         }
       }
       ZONE_STATE[i] = s;
     }
-    ZoneStatus[i] = s;
   }
-  //Receibing call or sms?
-  s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //si es SMS dura muy poco
+  s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
+  if (alarmConfig.Caller.GSMEnabled && s == LOW){
+    SIM_RINGING = true;                                 //Receibing call or sms
+  } 
   return !zonesOk;
 }
 
