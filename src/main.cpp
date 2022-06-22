@@ -167,7 +167,7 @@ esp8266::polledTimeout::oneShotMs wifiTimeout(timeout);  // 30 second timeout on
 // use fully qualified type and avoid importing all ::esp8266 namespace to the global namespace
 */
 unsigned long startT;
-const String PHONE = "+543414681709";
+//const String PHONE = "+543414681709";
 String smsStatus,senderNumber,receivedDate,msg;
 static const uint8_t _responseInfoSize = 12; 
 const String _responseInfo[_responseInfoSize] =
@@ -184,12 +184,23 @@ const String _responseInfo[_responseInfoSize] =
     ">",
     "OK"};
 byte _checkResponse(uint16_t timeout);
-//String rta;
+
+//ESP8266 Status:
+#define ESP_WIFI 0      //Wifi enabled during start up (120 secs)
+#define ESP_DISARMED 1  //Alarm disarmed
+#define ESP_ARMED 2     //Alarm armed
+#define ESP_FIREDELAY 3 //Alarm fired delay (delayed zone activated)
+#define ESP_FIRED 4     //Alarm fired (siren activated)
+#define ESP_FIREDTOUT 5 //Alarm fired time out (siren silenced after max siren time)
+uint8_t ESPStatus = ESP_WIFI;
+
 //SIM800 status:
-//#define DISCONNECTED 0
-//#define CONNECTING 1
-//#define WAITING 2
-//byte Sim800_Status = DISCONNECTED;
+#define SIM_INACTIVE 0       //SIM800 not responding AT commands
+#define SIM_ERROR 1       //SIM800 not responding AT commands
+#define SIM_SLEEPING 2    //SIM800 sleeping
+#define SIM_CALLING 3     //SIM800 in a call
+uint8_t SIMStatus = SIM_INACTIVE;
+
 static String Sim800_Buffer_Array[50];
 static int Sim800_Buffer_Count = 0;
 String DTMFs = "";
@@ -219,6 +230,8 @@ bool sleepTime = false;
 #define SIM800_RING_RESET_PIN D3    //input and output pin, used to reset the sim800
 const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};
 const uint8_t SIREN_DEF[SIZEOF_SIREN] = {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW
+const bool SIREN_FORCED[SIZEOF_SIREN] = {false, false, false}; //if forced, the output status will be overriden to the oposite of SIREN_DEF despite the alarm status.
+
 //ADC_MODE(ADC_VCC);  //don't connect anything to the analog input pin(s)! allows you to monitor the internal VCC level; it varies with WiFi load
 int ZoneStatus[SIZEOF_ZONE];
 
@@ -584,8 +597,11 @@ void setup() {
   wifi_set_opmode(NULL_MODE);							 	  //set WiFi	mode	to	null	mode.
   wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);		  //This API can only be called before wifi_fpm_open 	light	sleep
   wifi_fpm_open();													  //Enable force sleep function
-  for (int i = 0; i < SIZEOF_ZONE; i++)       //If TriggerNC = true, zones must be at ground, opening ground loop wakes the ESP and fires the alarm.
-    wifi_enable_gpio_wakeup(GPIO_ID_PIN(ZONE_PIN[i]), alarmConfig.Zone[i].TriggerNC ? GPIO_PIN_INTR_HILEVEL : GPIO_PIN_INTR_LOLEVEL);
+  for (int i = 0; i < SIZEOF_ZONE; i++){       //If TriggerNC = true, zones must be at ground, opening ground loop wakes the ESP and fires the alarm.
+    if (alarmConfig.Zone[i].Enabled){
+      wifi_enable_gpio_wakeup(GPIO_ID_PIN(ZONE_PIN[i]), alarmConfig.Zone[i].TriggerNC ? GPIO_PIN_INTR_HILEVEL : GPIO_PIN_INTR_LOLEVEL);
+    }
+  }
   wifi_enable_gpio_wakeup(GPIO_ID_PIN(SIM800_RING_RESET_PIN), GPIO_PIN_INTR_LOLEVEL); //Sending this GPIOs to ground will wake the ESP.
   wifi_fpm_set_wakeup_cb(WakeUpCallBackFunction);	//This API can only be called when force sleep function is enabled, after calling wifi_fpm_open. Will be called after system wakes up only if the force sleep time out (wifi_fpm_do_sleep and the parameter is not 0xFFFFFFF)
 }
@@ -935,7 +951,13 @@ void doAction(){
 void Sleep_Forced() {
   DEBUG_PRINTLN(F("Going to Sleep at ms: ") + String(RTCmillis()));
   DEBUG_FLUSH;
-  
+
+  //If there's any timed task pending, go to timed light sleep. Calculate the sleeping period (max ...)
+  //DO NOT SLEEP IF:
+  //  - in a call
+  //  - alarm fired (waiting to sound or sounding)
+  //  - wifi enabled at startup period
+
   extern os_timer_t *timer_list;  //for timer-based light sleep to work, the os timers need to be disconnected
   timer_list = nullptr;
 
