@@ -186,21 +186,23 @@ const String _responseInfo[_responseInfoSize] =
 byte _checkResponse(uint16_t timeout);
 
 //ESP8266 Status:
-#define ESP_WIFI 0      //Wifi enabled during start up (120 secs)
-#define ESP_DISARMED 1  //Alarm disarmed
-#define ESP_ARMED 2     //Alarm armed
-#define ESP_FIREDELAY 3 //Alarm fired delay (delayed zone activated)
-#define ESP_FIRED 4     //Alarm fired (siren activated)
-#define ESP_FIREDTOUT 5 //Alarm fired time out (siren silenced after max siren time)
-uint8_t ESPStatus = ESP_WIFI;
+bool ESP_WIFI = false;      //Wifi enabled during start up (120 secs)
+bool ESP_DISARMED = false;  //Alarm disarmed
+bool ESP_ARMED = false;     //Alarm armed
+bool ESP_FIREDELAY = false; //Alarm fired delay (delayed zone activated)
+uint32_t ESP_FIREDELAY_MILLIS; //Alarm fired delay millis start
+bool ESP_FIRED = false;     //Alarm fired (siren activated)
+uint32_t ESP_FIRED_MILLIS;  //Alarm fired millis
+bool ESP_FIREDTOUT = false; //Alarm fired time out (siren silenced after max siren time)
+//uint8_t ESPStatus = ESP_WIFI;
 bool ReadyToSleep = false;
 
 //SIM800 status:
-#define SIM_INACTIVE 0       //SIM800 not responding AT commands
-#define SIM_ERROR 1       //SIM800 not responding AT commands
-#define SIM_SLEEPING 2    //SIM800 sleeping
-#define SIM_CALLING 3     //SIM800 in a call
-uint8_t SIMStatus = SIM_INACTIVE;
+bool SIM_INACTIVE = false;       //SIM800 not responding AT commands
+bool SIM_ERROR = false;       //SIM800 not responding AT commands
+bool SIM_SLEEPING = false;    //SIM800 sleeping
+bool SIM_CALLING = false;     //SIM800 in a call
+//uint8_t SIMStatus = SIM_INACTIVE;
 
 static String Sim800_Buffer_Array[50];
 static int Sim800_Buffer_Count = 0;
@@ -211,7 +213,7 @@ bool sleepTime = false;
 //ESP8266 NodeMCU Wemos D1 Mini pinout:
 // D0/GPIO16 (no interrupts to wake up), D1/GPIO5, D2/GPIO4, D3/GPIO0, D4/GPIO2 (built-in LED), D6/GPIO12, D7/GPIO13
 
-//#define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
+#define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
 #ifdef DEBUG
   #define DEBUG_PRINTLN(x)  Serial.println(x)
   #define DEBUG_PRINT(x)  Serial.print(x)
@@ -228,10 +230,14 @@ bool sleepTime = false;
   HardwareSerial sim800(UART0);
   const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D1, D2, D5, D6, D7};
 #endif
+bool ZONE_DISABLED[SIZEOF_ZONE]; //if the zone has auto disable function enabled, this array will mask them.
+bool ZONE_COUNT[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
+uint8_t ZONE_STATE[SIZEOF_ZONE]; //the state of the zones (las/previous reading).
+
 #define SIM800_RING_RESET_PIN D3    //input and output pin, used to reset the sim800
 const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};
 const uint8_t SIREN_DEF[SIZEOF_SIREN] = {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW
-const bool SIREN_FORCED[SIZEOF_SIREN] = {false, false, false}; //if forced, the output status will be overriden to the oposite of SIREN_DEF despite the alarm status.
+bool SIREN_FORCED[SIZEOF_SIREN]; //if forced, the output status will be overriden to the oposite of SIREN_DEF despite the alarm status.
 
 //ADC_MODE(ADC_VCC);  //don't connect anything to the analog input pin(s)! allows you to monitor the internal VCC level; it varies with WiFi load
 int ZoneStatus[SIZEOF_ZONE];
@@ -272,7 +278,7 @@ void InsertExtractLine(String description, String &text, String &ins_ext, bool i
 void InsertExtractLine(String description, String &text, uint16_t &ins_ext, bool insert);
 void InsertExtractLine(String description, String &text, bool &ins_ext, bool insert);
 void InsertExtractLine(String description, String &text, char* ins_ext, bool insert);
-void Read_Zones_State();
+bool Read_Zones_State();
 void Sleep_Prepare();
 uint32_t RTCmillis();
 
@@ -530,18 +536,18 @@ void setup() {
   PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTMS_U, FUNC_GPIO14); //Use	MTMS	pin	as	GPIO14.
   PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_GPIO15); //Use	MTDO	pin	as	GPIO15.
 
-  for (int i = 0; i < SIZEOF_ZONE; i++)
+  for (int i = 0; i < SIZEOF_ZONE; i++){
     GPIO_DIS_OUTPUT(GPIO_ID_PIN(ZONE_PIN[i]));    //Configura la pata como entrada, traido de Sleep_Forced
-
-  for (int i = 0; i < SIZEOF_ZONE; i++)
     pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);
+    ZONE_DISABLED[i] = false;
+    ZONE_COUNT[i] = 0;
+  }
 
-  for (int i = 0; i < SIZEOF_SIREN; i++)
+  for (int i = 0; i < SIZEOF_SIREN; i++){
     pinMode(GPIO_ID_PIN(SIREN_PIN[i]), OUTPUT);
-
-  for (int i = 0; i < SIZEOF_SIREN; i++)
     digitalWrite(GPIO_ID_PIN(SIREN_PIN[i]), SIREN_DEF[i]);
-
+    SIREN_FORCED[i] = false;
+  }
   //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
   pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP); //to read SIM800 RING, later will be set temporarily as output to reset SIM800
 
@@ -618,7 +624,7 @@ void loop() {
     delay(10);
     Espera(500);
 
-    Sim800_enterSleepMode();
+//    Sim800_enterSleepMode();      HABILITAT ESTOOO!!!
     
     
     //sim800.end();
@@ -999,26 +1005,30 @@ uint32_t RTCmillis() {
   return (system_get_rtc_time() * (system_rtc_clock_cali_proc() >> 12)) / 1000;  // system_get_rtc_time() is in us (but very inaccurate anyway)
 }
 
-void Read_Zones_State(){
+bool Read_Zones_State(){
   int s;
+  bool zonesOk = true;  //not any zone triggered
   for (int i = 0; i < SIZEOF_ZONE; i++){
-    if (alarmConfig.Zone[i].Enabled){
+    if (alarmConfig.Zone[i].Enabled && !ZONE_DISABLED[i]){
       s = digitalRead(GPIO_ID_PIN(ZONE_PIN[i]));
-      if (alarmConfig.Zone[i].TriggerNC){
-        if (s == LOW){
-
-        }
-      } else {
-        if (s == HIGH){
-
+      if ((alarmConfig.Zone[i].TriggerNC && s == HIGH) || (!alarmConfig.Zone[i].TriggerNC && s == LOW)){
+        zonesOk = true;
+        if (ZONE_STATE[i] != s){  //Zone state changed
+          if (ESP_ARMED){
+            if (!ESP_FIREDELAY){
+              ESP_FIREDELAY = true;
+              ESP_FIREDELAY_MILLIS = RTCmillis();
+            }
+          }
         }
       }
+      ZONE_STATE[i] = s;
     }
     ZoneStatus[i] = s;
-  //  o uso interrupciones????
   }
   //Receibing call or sms?
   s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //si es SMS dura muy poco
+  return !zonesOk;
 }
 
 /*void Sleep_Forced_NotWorking() {
