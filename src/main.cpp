@@ -917,7 +917,7 @@ void extractSms(String buff){
 void doAction(){
   DEBUG_PRINT(F("mensaje: "));
   DEBUG_PRINTLN("-" + msg + "-"); //msg is in "lowercase"
-  if(msg == "a" & alarmConfig.OpPass){  
+  if(msg == "a" + String(alarmConfig.OpPass)){
     if (ReadyToArm){
       DEBUG_PRINTLN(F("Alarm Armed"));
       ESP_ARMED = true;
@@ -927,7 +927,7 @@ void doAction(){
       ESP_ARMED = false;
     }
   }
-  else if(msg == "d" & alarmConfig.OpPass){
+  else if(msg == "d" + String(alarmConfig.OpPass)){
     DEBUG_PRINTLN(F("Alarm Disarmed"));
   }
   else if(msg == "llamame"){
