@@ -202,9 +202,9 @@ bool ReadyToSleep = false;
 //SIM800 status:
 bool SIM_RINGING = false;       //SIM800 RI pin is active
 bool SIM_ONCALL = false;        //SIM800 is on call
+bool SIM_SLEEPING = false;      //SIM800 sleeping
 //bool SIM_INACTIVE = false;       //SIM800 not responding AT commands
 //bool SIM_ERROR = false;       //SIM800 not responding AT commands
-//bool SIM_SLEEPING = false;    //SIM800 sleeping
 //bool SIM_CALLING = false;     //SIM800 in a call
 //uint8_t SIMStatus = SIM_INACTIVE;
 
@@ -213,6 +213,7 @@ static int Sim800_Buffer_Count = 0;
 String DTMFs = "";
 bool waitingCPAS = false;
 bool sleepTime = false;
+bool ReadyToArm = false;
 
 //ESP8266 NodeMCU Wemos D1 Mini pinout:
 // D0/GPIO16 (no interrupts to wake up), D1/GPIO5, D2/GPIO4, D3/GPIO0, D4/GPIO2 (built-in LED), D6/GPIO12, D7/GPIO13
@@ -606,10 +607,21 @@ void setup() {
 
 void loop() {
   String readstr = "";
-  bool readyToArm = Read_Zones_State();
+  ReadyToArm = Read_Zones_State();
 
-  /*
-  //Configuring the ESP to be able to LIGHT SLEEP:
+  if (SIM_SLEEPING && SIM_RINGING){
+    Sim800_disableSleep();
+  }
+  while(sim800.available()){
+    parseData(sim800.readString());
+  }
+  readstr = Sim800_Buffer_Read();
+  while(readstr != ""){
+    parseData(readstr);
+    readstr = Sim800_Buffer_Read();
+  }
+
+  /*//Configuring the ESP to be able to LIGHT SLEEP:
   if (!ReadyToSleep && RTCmillis() > 60000)
     Sleep_Prepare();
 
@@ -641,23 +653,13 @@ void loop() {
   }*/
   //if (blinkLED)
   //  digitalWrite(LED, !digitalRead(LED));  // toggle the activity LED
-  while(sim800.available()){
-    startT = millis();        //reseteo tiempo hasta dormirme
-    parseData(sim800.readString());
-  }
   #ifdef DEBUG
     while(Serial.available())  {
       readstr = Serial.readString();
       DEBUG_PRINTLN("Enviando: -" + readstr + "-");
       sim800.println(readstr);
-      startT = millis();        //reseteo tiempo hasta dormirme
     }
   #endif
-  readstr = Sim800_Buffer_Read();
-  while(readstr != ""){
-    parseData(readstr);
-    readstr = Sim800_Buffer_Read();
-  }
 }
 
 bool Sim800_Connect(){
@@ -766,7 +768,6 @@ byte Sim800_checkResponse(unsigned long timeout){
   return Status;
 }
 
-//AGREGADO:
 void parseData(String buff){
   //La respuesta del SIM800l es "[comando enviado]\r[respuesta]"
   DEBUG_PRINTLN("respuesta completa recibida: -" + buff + "-");
@@ -915,14 +916,22 @@ void extractSms(String buff){
 
 void doAction(){
   DEBUG_PRINT(F("mensaje: "));
-  DEBUG_PRINTLN("-" + msg + "-");
-  if(msg == "relay1 off"){  
-    //DEBUG_PRINTLN(F("relay1 off ENTENDIDO"));
-    //digitalWrite(LED, LOW);
-    //Reply("Relay 1 has been OFF");
+  DEBUG_PRINTLN("-" + msg + "-"); //msg is in "lowercase"
+  if(msg == "a" & alarmConfig.OpPass){  
+    if (ReadyToArm){
+      DEBUG_PRINTLN(F("Alarm Armed"));
+      ESP_ARMED = true;
+    }
+    else {
+      DEBUG_PRINTLN(F("Alarm could not be Armed because some Zone is triggered"));
+      ESP_ARMED = false;
+    }
+  }
+  else if(msg == "d" & alarmConfig.OpPass){
+    DEBUG_PRINTLN(F("Alarm Disarmed"));
   }
   else if(msg == "llamame"){
-    sim800.println(F("ATD+543414681709;")); //make call  println evita tener q poner \r al final
+    sim800.println(F("ATD+543414xxxxxx;")); //make call  println evita tener q poner \r al final
     DEBUG_PRINTLN(F("llamada iniciada"));
     Espera(15000);
     sim800.println(F("ATH")); //hang up
