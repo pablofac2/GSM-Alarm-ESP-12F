@@ -193,6 +193,7 @@ byte _checkResponse(uint16_t timeout);
 #define ESP_FIRED 4     //Alarm fired (siren activated)
 #define ESP_FIREDTOUT 5 //Alarm fired time out (siren silenced after max siren time)
 uint8_t ESPStatus = ESP_WIFI;
+bool ReadyToSleep = false;
 
 //SIM800 status:
 #define SIM_INACTIVE 0       //SIM800 not responding AT commands
@@ -272,6 +273,8 @@ void InsertExtractLine(String description, String &text, uint16_t &ins_ext, bool
 void InsertExtractLine(String description, String &text, bool &ins_ext, bool insert);
 void InsertExtractLine(String description, String &text, char* ins_ext, bool insert);
 void Read_Zones_State();
+void Sleep_Prepare();
+uint32_t RTCmillis();
 
 void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
   String temp;
@@ -589,25 +592,14 @@ void setup() {
 
   ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
   DEBUG_PRINTLN(F("Wifi Conectado"));
-
-  //Configuring the ESP to be able to LIGHT SLEEP:
-  delay(1);                                   //Needs a small delay at the begining!
-  //gpio_pin_wakeup_disable();                //If only timed sleep, not pin interrupt
-  wifi_station_disconnect();                  //disconnect wifi
-  wifi_set_opmode(NULL_MODE);							 	  //set WiFi	mode	to	null	mode.
-  wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);		  //This API can only be called before wifi_fpm_open 	light	sleep
-  wifi_fpm_open();													  //Enable force sleep function
-  for (int i = 0; i < SIZEOF_ZONE; i++){       //If TriggerNC = true, zones must be at ground, opening ground loop wakes the ESP and fires the alarm.
-    if (alarmConfig.Zone[i].Enabled){
-      wifi_enable_gpio_wakeup(GPIO_ID_PIN(ZONE_PIN[i]), alarmConfig.Zone[i].TriggerNC ? GPIO_PIN_INTR_HILEVEL : GPIO_PIN_INTR_LOLEVEL);
-    }
-  }
-  wifi_enable_gpio_wakeup(GPIO_ID_PIN(SIM800_RING_RESET_PIN), GPIO_PIN_INTR_LOLEVEL); //Sending this GPIOs to ground will wake the ESP.
-  wifi_fpm_set_wakeup_cb(WakeUpCallBackFunction);	//This API can only be called when force sleep function is enabled, after calling wifi_fpm_open. Will be called after system wakes up only if the force sleep time out (wifi_fpm_do_sleep and the parameter is not 0xFFFFFFF)
 }
 
 void loop() {
   String readstr = "";
+
+  //Configuring the ESP to be able to LIGHT SLEEP:
+  if (!ReadyToSleep && RTCmillis() > 60000)
+    Sleep_Prepare();
 
   //AGREGADO:
   if ((WiFi.status()!= WL_CONNECTED) && (waitingCPAS == false) && (millis() - startT > 120000)){ //If ringing or in call, do not sleep
@@ -627,6 +619,8 @@ void loop() {
     Espera(500);
 
     Sim800_enterSleepMode();
+    
+    
     //sim800.end();
     Espera(500);
     
@@ -946,6 +940,23 @@ void doAction(){
   senderNumber="";
   receivedDate="";
   msg="";  
+}
+
+void Sleep_Prepare(){
+  delay(1);                                   //Needs a small delay at the begining!
+  //gpio_pin_wakeup_disable();                //If only timed sleep, not pin interrupt
+  wifi_station_disconnect();                  //disconnect wifi
+  wifi_set_opmode(NULL_MODE);							 	  //set WiFi	mode	to	null	mode.
+  wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);		  //This API can only be called before wifi_fpm_open 	light	sleep
+  wifi_fpm_open();													  //Enable force sleep function
+  for (int i = 0; i < SIZEOF_ZONE; i++){       //If TriggerNC = true, zones must be at ground, opening ground loop wakes the ESP and fires the alarm.
+    if (alarmConfig.Zone[i].Enabled){
+      wifi_enable_gpio_wakeup(GPIO_ID_PIN(ZONE_PIN[i]), alarmConfig.Zone[i].TriggerNC ? GPIO_PIN_INTR_HILEVEL : GPIO_PIN_INTR_LOLEVEL);
+    }
+  }
+  wifi_enable_gpio_wakeup(GPIO_ID_PIN(SIM800_RING_RESET_PIN), GPIO_PIN_INTR_LOLEVEL); //Sending this GPIOs to ground will wake the ESP.
+  wifi_fpm_set_wakeup_cb(WakeUpCallBackFunction);	//This API can only be called when force sleep function is enabled, after calling wifi_fpm_open. Will be called after system wakes up only if the force sleep time out (wifi_fpm_do_sleep and the parameter is not 0xFFFFFFF)
+  ReadyToSleep = true;
 }
 
 void Sleep_Forced() {
