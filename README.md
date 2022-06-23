@@ -12,11 +12,20 @@ ESP will always go to sleep except for this situations:
 
 ### SMS Message Commands
 
-- Arm: aXXXX where XXXX is the operation password
-- Disarm: dXXXX where XXXX is the operation password
-- Output status override: oXS where X is the output number and S is the status (0 or 1)
+If the SMS is sent from a known phone, it is not mandatory to write the password.
+- Status request: "sXXXX" where XXXX is the operation password.
+- Arm: "aXXXX" where XXXX is the operation password.
+- Disarm: "dXXXX" where XXXX is the operation password.
+- Zone Disable: "zdZXXXX" where XXXX is the operation password and Z is the zone number.
+- Zone Enable: "zeZXXXX" where XXXX is the operation password and Z is the zone number.
+- Siren Disable: "sdSXXXX" where XXXX is the operation password and S is the siren number.
+- Siren Enable: "seSXXXX" where XXXX is the operation password and S is the siren number.
+- Configuration parameter request: "*?" where * is the parameter description according wifi initial configuration.
+- Configuration parameter set: "*: X" where * is the parameter description according wifi initial configuration, and X is the new value.
 
 ### Remote control of Outputs
+
+- Output status override: "oOX" where O is the output number and Z is the status (0, 1 or empty to exit override).
 
 
 
