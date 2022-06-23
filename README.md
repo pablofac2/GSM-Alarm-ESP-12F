@@ -10,6 +10,12 @@ ESP will always go to sleep except for this situations:
 - while being wifi AP for configuration or status reading
 - while sending SMSs, calling or during a call
 
+### SMS Message Commands
+
+- Arm: aXXXX where XXXX is the operation password
+- Disarm: dXXXX where XXXX is the operation password
+- Output status override: oXS where X is the output number and S is the status (0 or 1)
+
 ### Remote control of Outputs
 
 
