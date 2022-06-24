@@ -1,4 +1,6 @@
 /*
+If VS CODE doesn't compile, check the pre-declaration of methods.
+
 platformio.ini:
 lib_deps = 
 	ottowinter/ESPAsyncTCP-esphome@^1.2.3
@@ -274,7 +276,7 @@ byte Sim800_checkResponse(unsigned long timeout);
 bool Sim800_setFullMode();
 void parseData(String buff);
 SmsMessage extractSms(String buff);
-void doAction();
+void doAction(String msg, String phone);
 void Espera(unsigned int TiempoMillis);
 void Sleep_Forced();
 float readVoltage();
@@ -881,7 +883,7 @@ void parseData(String buff){
         sim800.println(temp);
       }
       else if(cmd == "+CMGR"){
-        extractSms(buff + "\n\r" + buff2);  //en buff2 está el mensaje
+        SmsMessage smsmsg = extractSms(buff + "\n\r" + buff2);  //en buff2 está el mensaje
 
         index = buff2.indexOf("\r");  //saco el mensaje de buff2 y veo si quedó algo más:
         if(index > -1 && index < int(buff2.length()-2)){  //hay más de 1 repuesta, la divido para analizar luego el final
@@ -891,7 +893,7 @@ void parseData(String buff){
           buff2 = "";
         }
         //if(senderNumber == PHONE){
-          doAction();
+          doAction(smsmsg.Message, smsmsg.Phone);
         //}
       }
     }
