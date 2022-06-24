@@ -7,6 +7,11 @@ lib_deps =
 
 ESP_EEPROM.h lib dependency:
   #include <string.h>
+
+Text to speech:
+https://github.com/earlephilhower/ESP8266SAM
+https://github.com/earlephilhower/ESP8266Audio
+
 */
 #include <ESP_EEPROM.h>     //En esta librería agregué #include string.h
 #include <ESP8266WiFi.h>
@@ -27,7 +32,7 @@ ESP_EEPROM.h lib dependency:
 
 const char* AP_SSID = "ESP8266_Wifi";  // AP SSID here
 const char* AP_PASS = "123456789";  // AP password here
-const char* PARAM_INPUT_1 = "input1";
+//const char* PARAM_INPUT_1 = "input1";
 IPAddress webserver_IP(0, 0, 0, 0); // Default IP in AP mode is 192.168.4.1
 //ESP8266WebServer server(80);
 AsyncWebServer server(80);
@@ -168,7 +173,7 @@ esp8266::polledTimeout::oneShotMs wifiTimeout(timeout);  // 30 second timeout on
 */
 unsigned long startT;
 //const String PHONE = "+543414681709";
-String smsStatus,senderNumber,receivedDate,msg;
+//String smsStatus,senderNumber,receivedDate,msg;
 static const uint8_t _responseInfoSize = 12; 
 const String _responseInfo[_responseInfoSize] =
     {"ERROR",
@@ -243,6 +248,7 @@ uint8_t ZONE_STATE[SIZEOF_ZONE]; //the state of the zones (las/previous reading)
 const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};
 const uint8_t SIREN_DEF[SIZEOF_SIREN] = {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW
 bool SIREN_FORCED[SIZEOF_SIREN]; //if forced, the output status will be overriden to the oposite of SIREN_DEF despite the alarm status.
+bool SIREN_DISABLED[SIZEOF_SIREN];
 
 //ADC_MODE(ADC_VCC);  //don't connect anything to the analog input pin(s)! allows you to monitor the internal VCC level; it varies with WiFi load
 //int ZoneStatus[SIZEOF_ZONE];
@@ -286,6 +292,7 @@ void InsertExtractLine(String description, String &text, char* ins_ext, bool ins
 bool Read_Zones_State();
 void Sleep_Prepare();
 uint32_t RTCmillis();
+void SmsReponse(String text, String phone, bool forced)
 
 void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
   String temp;
@@ -507,7 +514,6 @@ void notFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
 
-// Replaces placeholder with stored values
 String processor(const String& var){
   if(var == "htmladminpass"){
     return HTMLAdminPass;
@@ -651,8 +657,6 @@ void loop() {
     startT = millis();
     waitingCPAS = false;
   }*/
-  //if (blinkLED)
-  //  digitalWrite(LED, !digitalRead(LED));  // toggle the activity LED
   #ifdef DEBUG
     while(Serial.available())  {
       readstr = Serial.readString();
@@ -914,36 +918,121 @@ void extractSms(String buff){
   msg.toLowerCase();
 }
 
-void doAction(){
-  DEBUG_PRINT(F("mensaje: "));
-  DEBUG_PRINTLN("-" + msg + "-"); //msg is in "lowercase"
-  if(msg == "a" + String(alarmConfig.OpPass)){
+void doAction(String msg, String phone){
+  DEBUG_PRINTLN("SMS: -" + msg + "-"); //msg is in "lowercase"
+  //Recognised sender or password attached on msg?
+  bool autorized = false;
+  for (int i=0; i < SIZEOF_DISARMPHONE; i++){
+    if (phone == String(alarmConfig.Caller.SMSPhone[i].Number)){
+      autorized = true;
+      break;
+    }
+  }
+  if (alarmConfig.OpPass == msg.substring(0, SIZEOF_PASS)){
+    autorized = true;
+    msg.remove(0, SIZEOF_PASS);
+  }
+  if (!autorized) return;
+
+  DEBUG_PRINTLN("Autorized! msg: -" + msg + "-");
+  String text;
+  uint8_t z;
+  if(msg == "s"){
+    text = "Armed " + (ESP_ARMED?"1":"0");
+    text += "\rFired " + (ESP_FIRED?"1":"0");
+    text += "\rBat " + String(readVoltage);
+    SmsReponse(text, senderNumber, false);
+  }
+  else if(msg == "a"){
     if (ReadyToArm){
-      DEBUG_PRINTLN(F("Alarm Armed"));
       ESP_ARMED = true;
+      SmsReponse("Alarm Armed", senderNumber, false);
     }
     else {
-      DEBUG_PRINTLN(F("Alarm could not be Armed because some Zone is triggered"));
-      ESP_ARMED = false;
+      SmsReponse("Alarm could not be Armed because some Zone is triggered", senderNumber, false);
     }
   }
-  else if(msg == "d" + String(alarmConfig.OpPass)){
-    DEBUG_PRINTLN(F("Alarm Disarmed"));
+  else if(msg == "d"){
+    ESP_ARMED = false;
+    SmsReponse("Alarm Disarmed", senderNumber, false);
   }
-  else if(msg == "llamame"){
+  else if(msg.substring(0,1) == "z"){
+    msg.remove(0, 1);
+    text = msg.substring(0,1);
+    if(text == "e" || text == "d"){
+      msg.remove(0, 1);
+      z = msg.toInt();
+      if (z >= 0 && z < SIZEOF_ZONE){
+        ZONE_DISABLED[z] = (text=="e")?false:true;
+        SmsReponse("Zone " + z + (text=="e")?" Enabled":" Disabled", senderNumber, false);
+      }
+      else{
+        SmsReponse("Invalid Zone " + z, senderNumber, false);
+      }
+    }
+  }
+  else if(msg.substring(0,1) == "s"){
+    msg.remove(0, 1);
+    text = msg.substring(0,1);
+    if(text == "e" || text == "d"){
+      msg.remove(0, 1);
+      z = msg.toInt();
+      if (z >= 0 && z < SIZEOF_SIREN){
+        SIREN_DISABLE[z] = (text=="e")?false:true;
+        SmsReponse("Siren " + z + (text=="e")?" Enabled":" Disabled", senderNumber, false);
+      }
+      else{
+        SmsReponse("Invalid Siren " + z, senderNumber, false);
+      }
+    }
+  }
+  else if(msg.substring(0,1) == "o"){
+    msg.remove(0, 1);
+    text = msg.substring(0,1);
+    if(text == "1" || text == "0"){
+      msg.remove(0, 1);
+      z = msg.toInt();
+      if (z >= 0 && z < SIZEOF_SIREN){
+        SIREN_FORCED[z] = (text=="0")?false:true;
+        SmsReponse("Output " + z + "=" + text, senderNumber, false);
+      }
+      else{
+        SmsReponse("Invalid Output " + z, senderNumber, false);
+      }
+    }
+  }
+  /*else if(msg == "llamame"){
     sim800.println(F("ATD+543414xxxxxx;")); //make call  println evita tener q poner \r al final
     DEBUG_PRINTLN(F("llamada iniciada"));
     Espera(15000);
     sim800.println(F("ATH")); //hang up
     DEBUG_PRINTLN(F("llamada finalizada"));
-  }
-  else if(msg == "sleep"){
-
-  }
-  smsStatus = "";
+  }*/
+  /*smsStatus = "";
   senderNumber="";
   receivedDate="";
-  msg="";  
+  msg="";  */
+}
+
+void SmsReponse(String text, String phone, bool forced){
+  DEBUG_PRINTLN(text);
+  //if forced = true, the sms will be sent even if it is not configured
+  if (alarmConfig.Caller.GSMEnabled && (alarmConfig.Caller.SMSResponse || forced)){
+    DEBUG_PRINTLN("TO SIM800: AT+CMGS=\"" + phone + "\"\r" + text + (char)26);
+    //sim800l.print("AT+CMGF=1\r");                   //Set the module to SMS mode
+    //delay(100);
+    //sim800l.print("AT+CMGS=\"+*********\"\r");
+//    sim800l.print("AT+CMGS=\"" + phone + "\"\r");  //Your phone number don't forget to include your country code, example +212123456789"
+    //delay(500);
+//    sim800l.print(text);       //This is the text to send to the phone number, don't make it too long or you have to modify the SoftwareSerial buffer
+    //delay(500);
+    //sim800l.print((char)26);// (required according to the datasheet)
+    //delay(500);
+    //sim800l.println();
+//    sim800l.println((char)26);// (required according to the datasheet)
+    sim800l.println("AT+CMGS=\"" + phone + "\"\r" + text + (char)26);  //Your phone number don't forget to include your country code, example +212123456789"
+    sim800l.flush();
+  }
 }
 
 void Sleep_Prepare(){
