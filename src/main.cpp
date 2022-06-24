@@ -174,6 +174,10 @@ esp8266::polledTimeout::oneShotMs wifiTimeout(timeout);  // 30 second timeout on
 unsigned long startT;
 //const String PHONE = "+543414681709";
 //String smsStatus,senderNumber,receivedDate,msg;
+struct SmsMessage {
+  String Phone;
+  String Message;
+};
 static const uint8_t _responseInfoSize = 12; 
 const String _responseInfo[_responseInfoSize] =
     {"ERROR",
@@ -269,11 +273,11 @@ String Sim800_AnswerString(uint16_t timeout);
 byte Sim800_checkResponse(unsigned long timeout);
 bool Sim800_setFullMode();
 void parseData(String buff);
-void extractSms(String buff);
+SmsMessage extractSms(String buff);
 void doAction();
 void Espera(unsigned int TiempoMillis);
 void Sleep_Forced();
-void readVoltage();
+float readVoltage();
 void printMillis();
 void WakeUpCallBackFunction();
 void ConfigDefault(propAlarm &pa);
@@ -292,7 +296,7 @@ void InsertExtractLine(String description, String &text, char* ins_ext, bool ins
 bool Read_Zones_State();
 void Sleep_Prepare();
 uint32_t RTCmillis();
-void SmsReponse(String text, String phone, bool forced)
+void SmsReponse(String text, String phone, bool forced);
 
 void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
   String temp;
@@ -579,10 +583,10 @@ void setup() {
   DEBUG_PRINT(F("\nalarmConfig Size= "));
   DEBUG_PRINTLN(sizeof(alarmConfig));
 
-  smsStatus = "";
+  /*smsStatus = "";
   senderNumber="";
   receivedDate="";
-  msg="";
+  msg="";*/
   Sim800_Connect();
   DEBUG_PRINTLN(F("**** Conectado ****"));
   startT = millis();
@@ -896,26 +900,29 @@ void parseData(String buff){
     parseData(buff2);
 }
 
-void extractSms(String buff){
-  unsigned int index;
+SmsMessage extractSms(String buff){
+  //unsigned int index;
+  uint8_t i;
+  SmsMessage smsmsg;
   
-  index = buff.indexOf(",");
-  smsStatus = buff.substring(1, index-1); 
-  buff.remove(0, index+2);
+  i = buff.indexOf(",");
+  String smsStatus = buff.substring(1, i-1); 
+  buff.remove(0, i+2);
   
-  senderNumber = buff.substring(0, 13);
+  smsmsg.Phone = buff.substring(0, 13);
   buff.remove(0,19);
   
-  receivedDate = buff.substring(0, 20);
+  String receivedDate = buff.substring(0, 20);
   buff.remove(0,buff.indexOf("\r"));
   buff.trim();
   
-  index =buff.indexOf("\n\r");
-  buff = buff.substring(0, index);
+  i = buff.indexOf("\n\r");
+  buff = buff.substring(0, i);
   buff.trim();
-  msg = buff;
-  buff = "";
-  msg.toLowerCase();
+  buff.toLowerCase();
+  smsmsg.Message = buff;
+
+  return smsmsg;
 }
 
 void doAction(String msg, String phone){
@@ -928,7 +935,7 @@ void doAction(String msg, String phone){
       break;
     }
   }
-  if (alarmConfig.OpPass == msg.substring(0, SIZEOF_PASS)){
+  if (String(alarmConfig.OpPass) == msg.substring(0, SIZEOF_PASS)){
     autorized = true;
     msg.remove(0, SIZEOF_PASS);
   }
@@ -938,23 +945,23 @@ void doAction(String msg, String phone){
   String text;
   uint8_t z;
   if(msg == "s"){
-    text = "Armed " + (ESP_ARMED?"1":"0");
-    text += "\rFired " + (ESP_FIRED?"1":"0");
-    text += "\rBat " + String(readVoltage);
-    SmsReponse(text, senderNumber, false);
+    text = "Armed " + String(ESP_ARMED?"1":"0");
+    text += "\rFired " + String(ESP_FIRED?"1":"0");
+    text += "\rBat " + String(readVoltage());
+    SmsReponse(text, phone, false);
   }
   else if(msg == "a"){
     if (ReadyToArm){
       ESP_ARMED = true;
-      SmsReponse("Alarm Armed", senderNumber, false);
+      SmsReponse("Alarm Armed", phone, false);
     }
     else {
-      SmsReponse("Alarm could not be Armed because some Zone is triggered", senderNumber, false);
+      SmsReponse("Alarm could not be Armed because some Zone is triggered", phone, false);
     }
   }
   else if(msg == "d"){
     ESP_ARMED = false;
-    SmsReponse("Alarm Disarmed", senderNumber, false);
+    SmsReponse("Alarm Disarmed", phone, false);
   }
   else if(msg.substring(0,1) == "z"){
     msg.remove(0, 1);
@@ -964,10 +971,10 @@ void doAction(String msg, String phone){
       z = msg.toInt();
       if (z >= 0 && z < SIZEOF_ZONE){
         ZONE_DISABLED[z] = (text=="e")?false:true;
-        SmsReponse("Zone " + z + (text=="e")?" Enabled":" Disabled", senderNumber, false);
+        SmsReponse("Zone " + z + (text=="e")?" Enabled":" Disabled", phone, false);
       }
       else{
-        SmsReponse("Invalid Zone " + z, senderNumber, false);
+        SmsReponse("Invalid Zone " + z, phone, false);
       }
     }
   }
@@ -978,11 +985,11 @@ void doAction(String msg, String phone){
       msg.remove(0, 1);
       z = msg.toInt();
       if (z >= 0 && z < SIZEOF_SIREN){
-        SIREN_DISABLE[z] = (text=="e")?false:true;
-        SmsReponse("Siren " + z + (text=="e")?" Enabled":" Disabled", senderNumber, false);
+        SIREN_DISABLED[z] = (text=="e")?false:true;
+        SmsReponse("Siren " + z + (text=="e")?" Enabled":" Disabled", phone, false);
       }
       else{
-        SmsReponse("Invalid Siren " + z, senderNumber, false);
+        SmsReponse("Invalid Siren " + z, phone, false);
       }
     }
   }
@@ -994,10 +1001,10 @@ void doAction(String msg, String phone){
       z = msg.toInt();
       if (z >= 0 && z < SIZEOF_SIREN){
         SIREN_FORCED[z] = (text=="0")?false:true;
-        SmsReponse("Output " + z + "=" + text, senderNumber, false);
+        SmsReponse("Output " + String(z) + "=" + text, phone, false);
       }
       else{
-        SmsReponse("Invalid Output " + z, senderNumber, false);
+        SmsReponse("Invalid Output " + z, phone, false);
       }
     }
   }
@@ -1030,8 +1037,8 @@ void SmsReponse(String text, String phone, bool forced){
     //delay(500);
     //sim800l.println();
 //    sim800l.println((char)26);// (required according to the datasheet)
-    sim800l.println("AT+CMGS=\"" + phone + "\"\r" + text + (char)26);  //Your phone number don't forget to include your country code, example +212123456789"
-    sim800l.flush();
+    sim800.println("AT+CMGS=\"" + phone + "\"\r" + text + (char)26);  //Your phone number don't forget to include your country code, example +212123456789"
+    sim800.flush();
   }
 }
 
@@ -1233,9 +1240,9 @@ String Sim800_AnswerString(uint16_t timeout){
   return "";
 }
 
-void readVoltage() { // read internal VCC
-  float volts = ESP.getVcc();
-  DEBUG_PRINTLN("The internal VCC reads " + String(volts / 1000) + " volts");
+float readVoltage() { // read internal VCC
+  //DEBUG_PRINTLN("The internal VCC reads " + String(volts / 1000) + " volts");
+  return ESP.getVcc();
 }
 
 void printMillis() {
