@@ -299,45 +299,168 @@ bool Read_Zones_State();
 void Sleep_Prepare();
 uint32_t RTCmillis();
 void SmsReponse(String text, String phone, bool forced);
+void CallReponse(String text, String phone, bool forced);
+void AlarmFiredSmsAdvise();
+void AlarmFiredCallAdvise();
+void AlarmDisarm();
+void Sim800_ManageCommunication();
+void Sim800_ManageCommunicationOnCall(unsigned long timeout);
 
-void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
-  String temp;
-  if (toString) str="";
-  InsertExtractLine("Auto Arm delay secs", str, pa.AutoArmDelaySecs, toString);
-  InsertExtractLine("GSM Enabled", str, pa.Caller.GSMEnabled, toString);
-  InsertExtractLine("SMS Response", str, pa.Caller.SMSResponse, toString);
-  InsertExtractLine("SMS On Alarm", str, pa.Caller.SMSOnAlarm, toString);
-  for(unsigned int i = 0; i < SIZEOF_SMSPHONE; i++)
-    InsertExtractLine("SMS Phone " + String(i), str, pa.Caller.SMSPhone[i].Number, toString);
-  InsertExtractLine("CALL Answer", str, pa.Caller.CALLAnswer, toString);
-  InsertExtractLine("CALL On Alarm", str, pa.Caller.CALLOnAlarm, toString);
-  for(unsigned int i = 0; i < SIZEOF_CALLPHONE; i++)
-    InsertExtractLine("CALL Phone " + String(i), str, pa.Caller.CALLPhone[i].Number, toString);
-  InsertExtractLine("CALL Arm Disarm Enabled", str, pa.Caller.CALLArmDisarm, toString);
-  for(unsigned int i = 0; i < SIZEOF_DISARMPHONE; i++)
-    InsertExtractLine("CALL Arm Disarm " + String(i), str, pa.Caller.CALLArmDisarmPhone[i].Number, toString);
-  for(unsigned int i = 0; i < SIZEOF_ZONE; i++){
-    temp = "Zone " + String(i);
-    InsertExtractLine(temp + " Name", str, pa.Zone[i].Name, toString);
-    InsertExtractLine(temp + " Enabled", str, pa.Zone[i].Enabled, toString);
-    InsertExtractLine(temp + " Auto Disable", str, pa.Zone[i].AutoDisable, toString);
-    InsertExtractLine(temp + " Trigger Normal Closed", str, pa.Zone[i].TriggerNC, toString);
-    InsertExtractLine(temp + " First Advise Duration secs", str, pa.Zone[i].FirstAdviseDurationSecs, toString);
-    InsertExtractLine(temp + " First Advise Reset secs", str, pa.Zone[i].FirstAdviseResetSecs, toString);
-    InsertExtractLine(temp + " Delay On secs", str, pa.Zone[i].DelayOnSecs, toString);
-    InsertExtractLine(temp + " Delay Off secs", str, pa.Zone[i].DelayOffSecs, toString);
-    InsertExtractLine(temp + " Min Duration secs", str, pa.Zone[i].MinDurationSecs, toString);
-    InsertExtractLine(temp + " Max Duration secs", str, pa.Zone[i].MaxDurationSecs, toString);
+void setup() {
+//usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
+
+  //PARA ASIGNAR LA FUNCIÓN ADECUADA A CADA PIN (ESTÁN MULTIPLEXADOS, VER EXCEL)
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_GPIO1);
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_GPIO3);
+  #ifndef DEBUG   //when debuging, D1 and D2 are used to comunicate to SIM800
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO5_U, FUNC_GPIO5);
+  #endif
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_CLK_U, FUNC_GPIO6);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA0_U, FUNC_GPIO7);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA1_U, FUNC_GPIO8);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA2_U, FUNC_GPIO9);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA3_U, FUNC_GPIO10);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_SD_CMD_U, FUNC_GPIO11);
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDI_U, FUNC_GPIO12); //Use	MTDI	pin	as	GPIO12.
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTCK_U, FUNC_GPIO13); //Use	MTCK	pin	as	GPIO13.
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTMS_U, FUNC_GPIO14); //Use	MTMS	pin	as	GPIO14.
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_GPIO15); //Use	MTDO	pin	as	GPIO15.
+
+  for (int i = 0; i < SIZEOF_ZONE; i++){
+    GPIO_DIS_OUTPUT(GPIO_ID_PIN(ZONE_PIN[i]));    //Configura la pata como entrada, traido de Sleep_Forced
+    pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);
+    ZONE_DISABLED[i] = false;
+    ZONE_COUNT[i] = 0;
   }
-  for(unsigned int i = 0; i < SIZEOF_SIREN; i++){
-    temp = "Siren " + String(i);
-    InsertExtractLine(temp + " Name", str, pa.Siren[i].Name, toString);
-    InsertExtractLine(temp + " Enabled", str, pa.Siren[i].Enabled, toString);
-    InsertExtractLine(temp + " Delayed", str, pa.Siren[i].Delayed, toString);
-    InsertExtractLine(temp + " Pulse secs", str, pa.Siren[i].PulseSecs, toString);
-    InsertExtractLine(temp + " Pause secs", str, pa.Siren[i].PauseSecs, toString);
-    InsertExtractLine(temp + " Max Duration secs", str, pa.Siren[i].MaxDurationSecs, toString);
+
+  for (int i = 0; i < SIZEOF_SIREN; i++){
+    pinMode(GPIO_ID_PIN(SIREN_PIN[i]), OUTPUT);
+    digitalWrite(GPIO_ID_PIN(SIREN_PIN[i]), SIREN_DEF[i]);
+    SIREN_FORCED[i] = false;
   }
+  //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
+  pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP); //to read SIM800 RING, later will be set temporarily as output to reset SIM800
+
+  #ifdef DEBUG
+    Serial.begin(DEBUGbaudrate);
+    //AGREGADO:
+    while(!Serial)
+    {
+      yield();
+    }  
+    DEBUG_PRINTLN();
+    DEBUG_PRINT(F("\nReset reason = "));
+    String resetCause = ESP.getResetReason();
+    DEBUG_PRINTLN(resetCause);
+  #endif
+
+  //Initialize config if EEPROM is empty
+  DEBUG_PRINT(F("\nalarmConfig Size= "));
+  DEBUG_PRINTLN(sizeof(alarmConfig));
+
+  /*smsStatus = "";
+  senderNumber="";
+  receivedDate="";
+  msg="";*/
+  Sim800_Connect();
+  DEBUG_PRINTLN(F("**** Conectado ****"));
+  startT = millis();
+
+  //Initialize EEPROM and read config
+  DEBUG_PRINTLN(F("**** Reading EEPROM ****"));
+  EEPROM.begin(sizeof(alarmConfig));
+  EEPROM.get(0, alarmConfig);
+  yield();
+
+  DEBUG_PRINT(MEMCHECK[0]);
+  DEBUG_PRINTLN(MEMCHECK[1]);
+  DEBUG_PRINT(alarmConfig.MemCheck[0]);
+  DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
+  if(alarmConfig.MemCheck[0] != MEMCHECK[0] || alarmConfig.MemCheck[1] != MEMCHECK[1]){  //EEPROM empty
+    DEBUG_PRINTLN(F("**** EEPROM Empty, loading Default configuration ****"));
+    ConfigDefault(alarmConfig);
+    ConfigToEEPROM(alarmConfig);
+  }
+  DEBUG_PRINT(alarmConfig.MemCheck[0]);
+  DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
+
+  ConfigStringCopy(alarmConfig, HTMLConfig, true);
+
+  ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
+  DEBUG_PRINTLN(F("Wifi Conectado"));
+}
+
+void loop() {
+  bool espFiredPrev = false;
+  ReadyToArm = Read_Zones_State();
+
+  //wake sim800 and read messages
+  if (SIM_RINGING && SIM_SLEEPING){
+    Sim800_disableSleep();
+  }
+  Sim800_ManageCommunication();
+
+
+  //write outputs:
+  for (int i=0; i < SIZEOF_SIREN; i++){
+    if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
+      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+    }
+    else{
+      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+    }
+  }
+
+  //Call and send SMSs if fired or battery low
+  if (ESP_FIRED && !espFiredPrev){  //if alarm was just fired
+    espFiredPrev = true;
+    AlarmFiredSmsAdvise();
+    AlarmFiredCallAdvise();
+  }
+
+  //Going to sleep
+  if (1 == 2 && !SIM_ONCALL && !SIM_RINGING && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){
+    if (!SIM_SLEEPING){
+      Sim800_enterSleepMode();
+      Espera(500);
+    }
+    Sleep_Forced();
+  }
+
+
+  /*//Configuring the ESP to be able to LIGHT SLEEP:
+  if (!ReadyToSleep && RTCmillis() > 60000)
+    Sleep_Prepare();
+
+  //AGREGADO:
+  if ((WiFi.status()!= WL_CONNECTED) && (waitingCPAS == false) && (millis() - startT > 120000)){ //If ringing or in call, do not sleep
+    waitingCPAS = true;
+    DEBUG_PRINTLN(F("Enviando AT+CPAS"));
+    sim800.println(F("AT+CPAS")); // activity of phone: 0 Ready, 2 Unknown, 3 Ringing, 4 Call in progress
+    sim800.flush();
+    //Espera(5000);
+  }
+  if (waitingCPAS && (millis() - startT < 20000))
+    waitingCPAS = false;          //reseteo porque ya hubo respuesta
+  if (sleepTime) { //if () (millis() - startT > 25000) {
+    sleepTime = false;
+    server.end(); //Ends the AP Web Server, as configuration is only at startup.
+    delay(10);
+    Espera(500);
+    Sim800_enterSleepMode();
+    //sim800.end();
+    Espera(500);
+    //disable all timers
+    //Espera(5000);
+    Sleep_Forced();
+    Sim800_disableSleep();
+    //revisar si estoy en una llamada o si llegó un nuevo mensaje
+    startT = millis();
+    waitingCPAS = false;
+  }*/
 }
 
 void InsertExtractLine(String description, String &text, String &ins_ext, bool insert){
@@ -373,11 +496,9 @@ void InsertExtractLine(String description, String &text, char* ins_ext, bool ins
     temp.toCharArray(ins_ext, temp.length()+1);
   }
 }
-
 void InsertLastLine(String description, String &text, String inserted){
   text += description + ": " + inserted + "\r";
 }
-
 void ExtractFirstLine(String description, String &text, String &extracted){
   int i = text.indexOf(description);
   i = text.indexOf(":", i);
@@ -468,6 +589,46 @@ void ConfigToEEPROM(propAlarm &pa){
   }
 }
 
+void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
+  String temp;
+  if (toString) str="";
+  InsertExtractLine("Auto Arm delay secs", str, pa.AutoArmDelaySecs, toString);
+  InsertExtractLine("GSM Enabled", str, pa.Caller.GSMEnabled, toString);
+  InsertExtractLine("SMS Response", str, pa.Caller.SMSResponse, toString);
+  InsertExtractLine("SMS On Alarm", str, pa.Caller.SMSOnAlarm, toString);
+  for(unsigned int i = 0; i < SIZEOF_SMSPHONE; i++)
+    InsertExtractLine("SMS Phone " + String(i), str, pa.Caller.SMSPhone[i].Number, toString);
+  InsertExtractLine("CALL Answer", str, pa.Caller.CALLAnswer, toString);
+  InsertExtractLine("CALL On Alarm", str, pa.Caller.CALLOnAlarm, toString);
+  for(unsigned int i = 0; i < SIZEOF_CALLPHONE; i++)
+    InsertExtractLine("CALL Phone " + String(i), str, pa.Caller.CALLPhone[i].Number, toString);
+  InsertExtractLine("CALL Arm Disarm Enabled", str, pa.Caller.CALLArmDisarm, toString);
+  for(unsigned int i = 0; i < SIZEOF_DISARMPHONE; i++)
+    InsertExtractLine("CALL Arm Disarm " + String(i), str, pa.Caller.CALLArmDisarmPhone[i].Number, toString);
+  for(unsigned int i = 0; i < SIZEOF_ZONE; i++){
+    temp = "Zone " + String(i);
+    InsertExtractLine(temp + " Name", str, pa.Zone[i].Name, toString);
+    InsertExtractLine(temp + " Enabled", str, pa.Zone[i].Enabled, toString);
+    InsertExtractLine(temp + " Auto Disable", str, pa.Zone[i].AutoDisable, toString);
+    InsertExtractLine(temp + " Trigger Normal Closed", str, pa.Zone[i].TriggerNC, toString);
+    InsertExtractLine(temp + " First Advise Duration secs", str, pa.Zone[i].FirstAdviseDurationSecs, toString);
+    InsertExtractLine(temp + " First Advise Reset secs", str, pa.Zone[i].FirstAdviseResetSecs, toString);
+    InsertExtractLine(temp + " Delay On secs", str, pa.Zone[i].DelayOnSecs, toString);
+    InsertExtractLine(temp + " Delay Off secs", str, pa.Zone[i].DelayOffSecs, toString);
+    InsertExtractLine(temp + " Min Duration secs", str, pa.Zone[i].MinDurationSecs, toString);
+    InsertExtractLine(temp + " Max Duration secs", str, pa.Zone[i].MaxDurationSecs, toString);
+  }
+  for(unsigned int i = 0; i < SIZEOF_SIREN; i++){
+    temp = "Siren " + String(i);
+    InsertExtractLine(temp + " Name", str, pa.Siren[i].Name, toString);
+    InsertExtractLine(temp + " Enabled", str, pa.Siren[i].Enabled, toString);
+    InsertExtractLine(temp + " Delayed", str, pa.Siren[i].Delayed, toString);
+    InsertExtractLine(temp + " Pulse secs", str, pa.Siren[i].PulseSecs, toString);
+    InsertExtractLine(temp + " Pause secs", str, pa.Siren[i].PauseSecs, toString);
+    InsertExtractLine(temp + " Max Duration secs", str, pa.Siren[i].MaxDurationSecs, toString);
+  }
+}
+
 void ConfigWifi(){
   DEBUG_PRINT(F("Setting AP (Access Point)…"));
   //set-up the custom IP address ***** ESTO QUIZAS NO HAGA FALTA
@@ -530,154 +691,31 @@ String processor(const String& var){
   return String();
 }
 
-void setup() {
-//usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
-
-  //PARA ASIGNAR LA FUNCIÓN ADECUADA A CADA PIN (ESTÁN MULTIPLEXADOS, VER EXCEL)
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_GPIO1);
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_GPIO3);
-  #ifndef DEBUG   //when debuging, D1 and D2 are used to comunicate to SIM800
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO5_U, FUNC_GPIO5);
-  #endif
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_CLK_U, FUNC_GPIO6);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA0_U, FUNC_GPIO7);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA1_U, FUNC_GPIO8);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA2_U, FUNC_GPIO9);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA3_U, FUNC_GPIO10);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_SD_CMD_U, FUNC_GPIO11);
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDI_U, FUNC_GPIO12); //Use	MTDI	pin	as	GPIO12.
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTCK_U, FUNC_GPIO13); //Use	MTCK	pin	as	GPIO13.
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTMS_U, FUNC_GPIO14); //Use	MTMS	pin	as	GPIO14.
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_GPIO15); //Use	MTDO	pin	as	GPIO15.
-
-  for (int i = 0; i < SIZEOF_ZONE; i++){
-    GPIO_DIS_OUTPUT(GPIO_ID_PIN(ZONE_PIN[i]));    //Configura la pata como entrada, traido de Sleep_Forced
-    pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);
-    ZONE_DISABLED[i] = false;
-    ZONE_COUNT[i] = 0;
+void Sim800_ManageCommunicationOnCall(unsigned long timeout){
+  unsigned long t = millis();
+  SIM_ONCALL = true;
+  while(millis()-t<timeout)
+  {
+    yield();
+    Sim800_ManageCommunication();
+    if (!SIM_ONCALL){             //call finished
+      break;
+    }
   }
-
-  for (int i = 0; i < SIZEOF_SIREN; i++){
-    pinMode(GPIO_ID_PIN(SIREN_PIN[i]), OUTPUT);
-    digitalWrite(GPIO_ID_PIN(SIREN_PIN[i]), SIREN_DEF[i]);
-    SIREN_FORCED[i] = false;
-  }
-  //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
-  pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP); //to read SIM800 RING, later will be set temporarily as output to reset SIM800
-
-  #ifdef DEBUG
-    Serial.begin(DEBUGbaudrate);
-    //AGREGADO:
-    while(!Serial)
-    {
-      yield();
-    }  
-    DEBUG_PRINTLN();
-    DEBUG_PRINT(F("\nReset reason = "));
-    String resetCause = ESP.getResetReason();
-    DEBUG_PRINTLN(resetCause);
-  #endif
-
-  //Initialize config if EEPROM is empty
-  DEBUG_PRINT(F("\nalarmConfig Size= "));
-  DEBUG_PRINTLN(sizeof(alarmConfig));
-
-  /*smsStatus = "";
-  senderNumber="";
-  receivedDate="";
-  msg="";*/
-  Sim800_Connect();
-  DEBUG_PRINTLN(F("**** Conectado ****"));
-  startT = millis();
-
-  //Initialize EEPROM and read config
-  DEBUG_PRINTLN(F("**** Reading EEPROM ****"));
-  EEPROM.begin(sizeof(alarmConfig));
-  EEPROM.get(0, alarmConfig);
-  yield();
-
-  DEBUG_PRINT(MEMCHECK[0]);
-  DEBUG_PRINTLN(MEMCHECK[1]);
-  DEBUG_PRINT(alarmConfig.MemCheck[0]);
-  DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
-  if(alarmConfig.MemCheck[0] != MEMCHECK[0] || alarmConfig.MemCheck[1] != MEMCHECK[1]){  //EEPROM empty
-    DEBUG_PRINTLN(F("**** EEPROM Empty, loading Default configuration ****"));
-    ConfigDefault(alarmConfig);
-    ConfigToEEPROM(alarmConfig);
-  }
-  DEBUG_PRINT(alarmConfig.MemCheck[0]);
-  DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
-
-  ConfigStringCopy(alarmConfig, HTMLConfig, true);
-
-  ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
-  DEBUG_PRINTLN(F("Wifi Conectado"));
 }
 
-void loop() {
+void Sim800_ManageCommunication(){
   String readstr = "";
-  ReadyToArm = Read_Zones_State();
-
-  if (SIM_SLEEPING && SIM_RINGING){
-    Sim800_disableSleep();
-  }
-  while(sim800.available()){
-    parseData(sim800.readString());
-  }
-  readstr = Sim800_Buffer_Read();
-  while(readstr != ""){
-    parseData(readstr);
+  if (!SIM_SLEEPING){
+    while(sim800.available()){
+      parseData(sim800.readString());
+    }
     readstr = Sim800_Buffer_Read();
-  }
-
-  for (int i=0; i < SIZEOF_SIREN; i++){
-    if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
-      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
-    }
-    else{
-      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+    while(readstr != ""){
+      parseData(readstr);
+      readstr = Sim800_Buffer_Read();
     }
   }
-
-  //Call and send SMSs if fired or battery low
-
-
-  
-
-
-  /*//Configuring the ESP to be able to LIGHT SLEEP:
-  if (!ReadyToSleep && RTCmillis() > 60000)
-    Sleep_Prepare();
-
-  //AGREGADO:
-  if ((WiFi.status()!= WL_CONNECTED) && (waitingCPAS == false) && (millis() - startT > 120000)){ //If ringing or in call, do not sleep
-    waitingCPAS = true;
-    DEBUG_PRINTLN(F("Enviando AT+CPAS"));
-    sim800.println(F("AT+CPAS")); // activity of phone: 0 Ready, 2 Unknown, 3 Ringing, 4 Call in progress
-    sim800.flush();
-    //Espera(5000);
-  }
-  if (waitingCPAS && (millis() - startT < 20000))
-    waitingCPAS = false;          //reseteo porque ya hubo respuesta
-  if (sleepTime) { //if () (millis() - startT > 25000) {
-    sleepTime = false;
-    server.end(); //Ends the AP Web Server, as configuration is only at startup.
-    delay(10);
-    Espera(500);
-    Sim800_enterSleepMode();
-    //sim800.end();
-    Espera(500);
-    //disable all timers
-    //Espera(5000);
-    Sleep_Forced();
-    Sim800_disableSleep();
-    //revisar si estoy en una llamada o si llegó un nuevo mensaje
-    startT = millis();
-    waitingCPAS = false;
-  }*/
   #ifdef DEBUG
     while(Serial.available())  {
       readstr = Serial.readString();
@@ -685,6 +723,29 @@ void loop() {
       sim800.println(readstr);
     }
   #endif
+}
+
+void AlarmFiredSmsAdvise(){
+  String msg="ALARM FIRED!";
+  for (int i = 0; i < SIZEOF_ZONE; i++){
+    if (ZONE_COUNT[i]>0)
+      msg += ", Zone " + String(i) + " count: " + String(ZONE_COUNT[i]);
+  }
+  for (int i=0; i < SIZEOF_SMSPHONE; i++){
+    SmsReponse(msg, String(alarmConfig.Caller.SMSPhone[i].Number), false);
+  }
+}
+
+void AlarmFiredCallAdvise(){
+  String msg="ALARM FIRED! ALARM FIRED! ALARM FIRED!";
+  for (int i = 0; i < SIZEOF_ZONE; i++){
+    if (ZONE_COUNT[i]>0)
+      msg += ", Zone " + String(i) + " count: " + String(ZONE_COUNT[i]);
+  }
+  for (int i=0; i < SIZEOF_CALLPHONE; i++){
+    CallReponse(msg, String(alarmConfig.Caller.CALLPhone[i].Number), false);
+    //Sim800_ManageCommunication();   //Before callen next number, check for new sms
+  }
 }
 
 bool Sim800_Connect(){
@@ -826,11 +887,14 @@ void parseData(String buff){
   DEBUG_PRINTLN("queda para ahora: -" + buff + "-");
   //////////////////////////////////////////////////
   if(buff == "RING"){
+    SIM_RINGING = true;
     //resetear dtmf
     DTMFs="";
     DEBUG_PRINTLN("RING DETECTADO");
   }
   else if(buff == "NO CARRIER"){
+    SIM_RINGING = false;
+    SIM_ONCALL = false;
     DTMFs="";
     //resetesar dtmf
     DEBUG_PRINTLN("FIN LLAMADA DETECTADO");
@@ -881,7 +945,8 @@ void parseData(String buff){
         DTMFs += buff;
         DEBUG_PRINTLN("DTMF DETECTADO: " + buff);
         DEBUG_PRINTLN("DTMFs: " + DTMFs);
-        if(DTMFs=="1234"){
+        if(DTMFs==String(alarmConfig.OpPass)){
+          AlarmDisarm();
           sim800.println(F("AT+CLDTMF=10,\"1,5,1\""));
           sim800.flush();
           delay(120);
@@ -915,6 +980,15 @@ void parseData(String buff){
   }
   if(buff2 != "")
     parseData(buff2);
+}
+
+void AlarmDisarm(){
+    ESP_ARMED = false;
+    ESP_FIRED = false;
+    ESP_FIREDELAY = false;
+    ESP_FIREDTOUT = false;
+    for(int i=0; i < SIZEOF_ZONE; i++)
+      ZONE_COUNT[i] = 0;
 }
 
 SmsMessage extractSms(String buff){
@@ -977,10 +1051,7 @@ void doAction(String msg, String phone){
     }
   }
   else if(msg == "d"){
-    ESP_ARMED = false;
-    ESP_FIRED = false;
-    ESP_FIREDELAY = false;
-    ESP_FIREDTOUT = false;
+    AlarmDisarm();
     SmsReponse("Alarm Disarmed", phone, false);
   }
   else if(msg.substring(0,1) == "z"){
@@ -1044,7 +1115,10 @@ void doAction(String msg, String phone){
 void SmsReponse(String text, String phone, bool forced){
   DEBUG_PRINTLN(text);
   //if forced = true, the sms will be sent even if it is not configured
-  if (alarmConfig.Caller.GSMEnabled && (alarmConfig.Caller.SMSResponse || forced)){
+  if (alarmConfig.Caller.GSMEnabled &&
+    (alarmConfig.Caller.SMSResponse || forced || (alarmConfig.Caller.SMSOnAlarm && ESP_FIRED) ) &&
+    phone.length()>10)
+  {
     DEBUG_PRINTLN("TO SIM800: AT+CMGS=\"" + phone + "\"\r" + text + (char)26);
     //sim800l.print("AT+CMGF=1\r");                   //Set the module to SMS mode
     //delay(100);
@@ -1059,6 +1133,23 @@ void SmsReponse(String text, String phone, bool forced){
 //    sim800l.println((char)26);// (required according to the datasheet)
     sim800.println("AT+CMGS=\"" + phone + "\"\r" + text + (char)26);  //Your phone number don't forget to include your country code, example +212123456789"
     sim800.flush();
+  }
+}
+
+void CallReponse(String text, String phone, bool forced){
+  DEBUG_PRINTLN(text);
+  if (alarmConfig.Caller.GSMEnabled &&
+    ((alarmConfig.Caller.CALLOnAlarm && ESP_FIRED) || forced) &&
+    phone.length()>10)
+  {
+    DEBUG_PRINTLN("ATD+" + phone + ";");
+    sim800.println("ATD+" + phone + ";"); //make call  println evita tener q poner \r al final  //Your phone number don't forget to include your country code, example +212123456789"
+    sim800.flush();
+    //Espera(20000);
+    Sim800_ManageCommunicationOnCall(2000); //in case the call is attended and some DTMF sent
+    sim800.println(F("ATH")); //hang up
+    sim800.flush();
+    DEBUG_PRINTLN(F("Call ended"));
   }
 }
 
@@ -1154,7 +1245,7 @@ bool Read_Zones_State(){
           }
         }
         if (ESP_ARMED && ZONE_STATE[i] != s){       //Zone had a new trigger -> register it
-
+          ZONE_COUNT[i] += 1;
         }
       }
       ZONE_STATE[i] = s;
