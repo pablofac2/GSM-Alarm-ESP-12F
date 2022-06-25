@@ -633,6 +633,21 @@ void loop() {
     readstr = Sim800_Buffer_Read();
   }
 
+  for (int i=0; i < SIZEOF_SIREN; i++){
+    if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
+      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+    }
+    else{
+      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+    }
+  }
+
+  //Call and send SMSs if fired or battery low
+
+
+  
+
+
   /*//Configuring the ESP to be able to LIGHT SLEEP:
   if (!ReadyToSleep && RTCmillis() > 60000)
     Sleep_Prepare();
@@ -963,6 +978,9 @@ void doAction(String msg, String phone){
   }
   else if(msg == "d"){
     ESP_ARMED = false;
+    ESP_FIRED = false;
+    ESP_FIREDELAY = false;
+    ESP_FIREDTOUT = false;
     SmsReponse("Alarm Disarmed", phone, false);
   }
   else if(msg.substring(0,1) == "z"){
@@ -1146,7 +1164,7 @@ bool Read_Zones_State(){
   if (alarmConfig.Caller.GSMEnabled && s == LOW){
     SIM_RINGING = true;                                 //Receibing call or sms
   } 
-  return !zonesOk;
+  return zonesOk;
 }
 
 /*void Sleep_Forced_NotWorking() {

@@ -35,6 +35,7 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 
 ## Pending
 
+- Reset sim800 if needed
 - Wifi should be available to see status / history
 - How to arm / disarm?:
 -   Sending an sms
