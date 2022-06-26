@@ -314,6 +314,7 @@ void AlarmFiredCallAdvise();
 void AlarmDisarm();
 void Sim800_ManageCommunication();
 void Sim800_ManageCommunicationOnCall(unsigned long timeout);
+String AlarmStatusText();
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -754,21 +755,41 @@ void Sim800_ManageCommunication(){
 
 void AlarmFiredSmsAdvise(){
   String msg="ALARM FIRED!";
-  for (int i = 0; i < SIZEOF_ZONE; i++){
-    if (ZONE_COUNT[i]>0)
-      msg += ", Zone " + String(i) + " count: " + String(ZONE_COUNT[i]);
-  }
+  msg += AlarmStatusText();
   for (int i=0; i < SIZEOF_SMSPHONE; i++){
     SmsReponse(msg, String(alarmConfig.Caller.SMSPhone[i].Number), false);
   }
 }
 
+String AlarmStatusText(){
+  String msg="";
+  msg = "Armed " + String(ESP_ARMED?"1":"0");
+  msg += ", Fired " + String(ESP_FIRED?"1":"0");
+  msg += ", Bat " + String(readVoltage());
+  for (int i = 0; i < SIZEOF_ZONE; i++){
+    if (ZONE_COUNT[i]>0 || ZONE_DISABLED[i]){
+      msg += ", Zone" + String(i);
+      if (ZONE_DISABLED[i])
+        msg += " DIS";
+      if (ZONE_COUNT[i]>0)
+        msg += " count:" + String(ZONE_COUNT[i]);
+    }
+  }
+  for (int i = 0; i < SIZEOF_SIREN; i++){
+    if (SIREN_DISABLED[i] || SIREN_FORCED[i]){
+      msg += ", Siren" + String(i);
+      if (SIREN_DISABLED[i])
+        msg += " DIS";
+      if (SIREN_FORCED[i])
+        msg += " FORCED";
+    }
+  }
+  return msg;
+}
+
 void AlarmFiredCallAdvise(){
   String msg="ALARM FIRED! ALARM FIRED! ALARM FIRED!";
-  for (int i = 0; i < SIZEOF_ZONE; i++){
-    if (ZONE_COUNT[i]>0)
-      msg += ", Zone " + String(i) + " count: " + String(ZONE_COUNT[i]);
-  }
+  msg += AlarmStatusText();
   for (int i=0; i < SIZEOF_CALLPHONE; i++){
     CallReponse(msg, String(alarmConfig.Caller.CALLPhone[i].Number), false);
     //Sim800_ManageCommunication();   //Before callen next number, check for new sms
@@ -1079,10 +1100,7 @@ void doAction(String msg, String phone){
   String text;
   uint8_t z;
   if(msg == "s"){
-    text = "Armed " + String(ESP_ARMED?"1":"0");
-    text += ", Fired " + String(ESP_FIRED?"1":"0");
-    text += ", Bat " + String(readVoltage());
-    SmsReponse(text, phone, true);
+    SmsReponse(AlarmStatusText(), phone, true);
   }
   else if(msg == "a"){
     if (ReadyToArm){
@@ -1180,24 +1198,13 @@ void SmsReponse(String text, String phone, bool forced){
 //    sim800l.println((char)26);// (required according to the datasheet)
     sim800.println("AT+CMGS=\"" + phone + "\"");
     //sim800.flush();
-    delay(200);
+    delay(200);         //without the delay doesn't work
     sim800.print(text);  // + (char)26 //Your phone number don't forget to include your country code, example +212123456789"
     //sim800.print((char)26);
     sim800.write(26);
     sim800.println();
     sim800.flush();
-    delay(100);
-
-    /*sim800.print("AT+CMGS=\"+543414681709\"\r");
-    //sim800.flush();
-    delay(100);
-    sim800.print(text);  // + (char)26 //Your phone number don't forget to include your country code, example +212123456789"
-    //sim800.print((char)26);
-    sim800.write(26);
-    sim800.println();
-    sim800.flush();
-*/
-
+    Espera(5000);    //because if other AT command is sent, will be ignored for a while.
   }
 }
 
