@@ -396,7 +396,7 @@ void setup() {
 }
 
 void loop() {
-  bool espFiredPrev = false;
+  static bool espFiredPrev = false;
   ReadyToArm = Read_Zones_State();
 
   //wake sim800 and read messages
@@ -722,14 +722,14 @@ void Sim800_ManageCommunication(){
     while(Serial.available())  {
       readstr = Serial.readString();
       DEBUG_PRINTLN("Enviando: -" + readstr + "-");
-      if (readstr == "reset sim800"){
+      if (readstr == "reset sim800\r"){
         pinMode(SIM800_RING_RESET_PIN, OUTPUT);
         digitalWrite(SIM800_RING_RESET_PIN, LOW);
         delay(150);                                     //T reset pull down has to be > 105ms
         pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP);
       }
-      else if (readstr == "battery"){
-        DEBUG_PRINTLN("Battery voltage: " + String(readVoltage() * 14.2));
+      else if (readstr == "battery\r"){
+        DEBUG_PRINTLN("Battery voltage: " + String(readVoltage()));
       }
       else {
         sim800.println(readstr);
@@ -1052,7 +1052,7 @@ void doAction(String msg, String phone){
     text = "Armed " + String(ESP_ARMED?"1":"0");
     text += "\rFired " + String(ESP_FIRED?"1":"0");
     text += "\rBat " + String(readVoltage());
-    SmsReponse(text, phone, false);
+    SmsReponse(text, phone, true);
   }
   else if(msg == "a"){
     if (ReadyToArm){
@@ -1060,7 +1060,11 @@ void doAction(String msg, String phone){
       SmsReponse("Alarm Armed", phone, false);
     }
     else {
-      SmsReponse("Alarm could not be Armed because some Zone is triggered", phone, false);
+      text = "Alarm NOT Armed, Zone Triggered";
+      for (int i = 0; i < SIZEOF_ZONE; i++){
+        text += ", Zone " + String(i) + " = " + String(ZONE_STATE[i]==HIGH? "1" : "0");
+      }
+      SmsReponse(text, phone, false);
     }
   }
   else if(msg == "d"){
@@ -1155,8 +1159,8 @@ void CallReponse(String text, String phone, bool forced){
     ((alarmConfig.Caller.CALLOnAlarm && ESP_FIRED) || forced) &&
     phone.length()>10)
   {
-    DEBUG_PRINTLN("ATD+" + phone + ";");
-    sim800.println("ATD+" + phone + ";"); //make call  println evita tener q poner \r al final  //Your phone number don't forget to include your country code, example +212123456789"
+    DEBUG_PRINTLN("ATD" + phone + ";");
+    sim800.println("ATD" + phone + ";"); //make call  println evita tener q poner \r al final  //Your phone number don't forget to include your country code, example +212123456789"
     sim800.flush();
     //Espera(20000);
     Sim800_ManageCommunicationOnCall(2000); //in case the call is attended and some DTMF sent
@@ -1366,7 +1370,8 @@ String Sim800_AnswerString(uint16_t timeout){
 
 float readVoltage() { // read internal VCC
   //DEBUG_PRINTLN("The internal VCC reads " + String(volts / 1000) + " volts");
-  return ESP.getVcc();
+  //return ESP.getVcc();
+  return analogRead(A0) * 14.2 / 1000;
 }
 
 void printMillis() {
