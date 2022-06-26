@@ -728,6 +728,9 @@ void Sim800_ManageCommunication(){
         delay(150);                                     //T reset pull down has to be > 105ms
         pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP);
       }
+      else if (readstr == "battery"){
+        DEBUG_PRINTLN("Battery voltage: " + String(readVoltage() * 14.2));
+      }
       else {
         sim800.println(readstr);
       }
