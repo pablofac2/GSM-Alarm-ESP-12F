@@ -768,32 +768,38 @@ bool Sim800_Connect(){
   sim800.begin(SIM800baudrate);//115200
   delay(120);
   while(Sim800_checkResponse(5000)!=TIMEOUT);   //5 secs without receibing anything, See SIM800 manual, wait for SIM800 startup
-  unsigned long t = millis();
+  //unsigned long t = millis();
   DEBUG_PRINTLN(F("Enviando AT"));
   sim800.println("AT");
   sim800.flush();
+  Sim800_checkResponse(500);
   //delay(120);
-  while(Sim800_checkResponse(2000)!=OK){
+  /*while(Sim800_checkResponse(2000)!=OK){
     if (millis() - t > 60000){
       DEBUG_PRINTLN(F("AT sin respuesta"));
       return false;                             //Timeout connecting to SIM800
     }
-  }
+  }*/
   DEBUG_PRINTLN(F("Enviando AT+CFUN=1"));       //Set Full Mode
   sim800.println(F("AT+CFUN=1"));
   sim800.flush();
+  Sim800_checkResponse(500);
   DEBUG_PRINTLN(F("Enviando AT+CMGF=1"));
   sim800.println(F("AT+CMGF=1"));                  //SMS text mode
   sim800.flush();
+  Sim800_checkResponse(500);
   DEBUG_PRINTLN(F("Enviando ATS0=2"));
   sim800.println(F("ATS0=2"));                  //Atender al segundo Ring
   sim800.flush();
+  Sim800_checkResponse(500);
   DEBUG_PRINTLN(F("Enviando AT+DDET=1,0,0,0"));
   sim800.println(F("AT+DDET=1,0,0,0"));                  //Detección de códigos DTMF
   sim800.flush();
+  Sim800_checkResponse(500);
   DEBUG_PRINTLN(F("Enviando AT+IPR?"));
   sim800.println(F("AT+IPR?"));                   //Auto Baud Rate Serial Port Configuration (0 is auto)
   sim800.flush();
+  Sim800_checkResponse(500);
   return true;
 }
 
@@ -1050,8 +1056,8 @@ void doAction(String msg, String phone){
   uint8_t z;
   if(msg == "s"){
     text = "Armed " + String(ESP_ARMED?"1":"0");
-    text += "\rFired " + String(ESP_FIRED?"1":"0");
-    text += "\rBat " + String(readVoltage());
+    text += ", Fired " + String(ESP_FIRED?"1":"0");
+    text += ", Bat " + String(readVoltage());
     SmsReponse(text, phone, true);
   }
   else if(msg == "a"){
@@ -1148,7 +1154,7 @@ void SmsReponse(String text, String phone, bool forced){
     //delay(500);
     //sim800l.println();
 //    sim800l.println((char)26);// (required according to the datasheet)
-    sim800.println("AT+CMGS=\"" + phone + "\"\r" + text + (char)26);  //Your phone number don't forget to include your country code, example +212123456789"
+    sim800.print("AT+CMGS=\"" + phone + "\"\r" + text + (char)26);  //Your phone number don't forget to include your country code, example +212123456789"
     sim800.flush();
   }
 }
@@ -1371,7 +1377,7 @@ String Sim800_AnswerString(uint16_t timeout){
 float readVoltage() { // read internal VCC
   //DEBUG_PRINTLN("The internal VCC reads " + String(volts / 1000) + " volts");
   //return ESP.getVcc();
-  return analogRead(A0) * 14.2 / 1000;
+  return analogRead(A0) * 14.5 / 1000;
 }
 
 void printMillis() {
