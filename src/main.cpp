@@ -286,6 +286,8 @@ void ConfigDefault(propAlarm &pa);
 void ConfigWifi();
 void notFound(AsyncWebServerRequest *request);
 String processor(const String& var);
+void ConfigStringCopy(propAlarm &pa, String &str, bool toString);
+void ConfigToEEPROM(propAlarm &pa);
 void ConfigDefault(propAlarm &pa);
 void ConfigToString(propAlarm &pa, String &str);
 void StringToConfig(String &str, propAlarm &pa);
@@ -720,7 +722,15 @@ void Sim800_ManageCommunication(){
     while(Serial.available())  {
       readstr = Serial.readString();
       DEBUG_PRINTLN("Enviando: -" + readstr + "-");
-      sim800.println(readstr);
+      if (readstr == "reset sim800"){
+        pinMode(SIM800_RING_RESET_PIN, OUTPUT);
+        digitalWrite(SIM800_RING_RESET_PIN, LOW);
+        delay(150);                                     //T reset pull down has to be > 105ms
+        pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP);
+      }
+      else {
+        sim800.println(readstr);
+      }
     }
   #endif
 }
