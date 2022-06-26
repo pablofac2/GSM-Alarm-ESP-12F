@@ -32,6 +32,13 @@ https://github.com/earlephilhower/ESP8266Audio
 #include <ESPAsyncWebServer.h>
 // enter your WiFi configuration below
 
+//Text to speech:
+#include <ESP8266SAM.h>
+//#include <AudioOutputI2S.h>
+#include <AudioOutputI2SNoDAC.h>
+//AudioOutputI2S *out = NULL;
+AudioOutputI2SNoDAC *out = NULL;
+
 const char* AP_SSID = "ESP8266_Wifi";  // AP SSID here
 const char* AP_PASS = "123456789";  // AP password here
 //const char* PARAM_INPUT_1 = "input1";
@@ -393,6 +400,11 @@ void setup() {
 
   ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
   DEBUG_PRINTLN(F("Wifi Conectado"));
+
+  //out = new AudioOutputI2S();
+  out = new AudioOutputI2SNoDAC();
+  out->begin();
+  DEBUG_PRINTLN(F("Text to speech iniciado"));
 }
 
 void loop() {
@@ -962,6 +974,16 @@ void parseData(String buff){
         }
       }
       else if(cmd == "+DTMF"){
+        ESP8266SAM *sam = new ESP8266SAM;
+        String text;
+        text = "Alarm is Armed " + String(ESP_ARMED?"1":"0");
+        text += ", Fired " + String(ESP_FIRED?"1":"0");
+        text += ", Battery " + String(readVoltage());
+        sam->Say(out, text.c_str()); //"Alarm is Armed! ALARM IS ARMED! alarm is armed"
+        delay(500);
+        delete sam;
+
+
         //acumular dtmf
         DTMFs += buff;
         DEBUG_PRINTLN("DTMF DETECTADO: " + buff);
@@ -1156,22 +1178,25 @@ void SmsReponse(String text, String phone, bool forced){
     //delay(500);
     //sim800l.println();
 //    sim800l.println((char)26);// (required according to the datasheet)
-    sim800.print("AT+CMGS=\"" + phone + "\"\r");
+    sim800.println("AT+CMGS=\"" + phone + "\"");
     //sim800.flush();
+    delay(200);
     sim800.print(text);  // + (char)26 //Your phone number don't forget to include your country code, example +212123456789"
-    sim800.print((char)26);
+    //sim800.print((char)26);
     sim800.write(26);
     sim800.println();
     sim800.flush();
+    delay(100);
 
-    sim800.print("AT+CMGS=\"+543414681709\"\r");
+    /*sim800.print("AT+CMGS=\"+543414681709\"\r");
     //sim800.flush();
+    delay(100);
     sim800.print(text);  // + (char)26 //Your phone number don't forget to include your country code, example +212123456789"
-    sim800.print((char)26);
+    //sim800.print((char)26);
     sim800.write(26);
     sim800.println();
     sim800.flush();
-
+*/
 
   }
 }
