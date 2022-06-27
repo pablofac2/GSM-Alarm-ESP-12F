@@ -254,8 +254,8 @@ bool ReadyToArm = false;
   const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D1, D2, D5, D6, D7};
 #endif
 bool ZONE_DISABLED[SIZEOF_ZONE]; //if the zone has auto disable function enabled, this array will mask them.
-bool ZONE_COUNT[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
-uint8_t ZONE_STATE[SIZEOF_ZONE]; //the state of the zones (las/previous reading).
+uint8_t ZONE_COUNT[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
+int ZONE_STATE[SIZEOF_ZONE]; //the state of the zones (las/previous reading).
 bool ZONE_TRIGGERED[SIZEOF_ZONE]; //the zone is triggered.
 
 #define SIM800_RING_RESET_PIN D3    //input and output pin, used to reset the sim800
@@ -419,6 +419,7 @@ void loop() {
   }
   Sim800_ManageCommunication();
 
+  //DEBUG_PRINT(F("."));
 
   //write outputs:
   for (int i=0; i < SIZEOF_SIREN; i++){
@@ -813,7 +814,7 @@ bool Sim800_Connect(){
   delay(120);
   while(Sim800_checkResponse(5000)!=TIMEOUT);   //5 secs without receibing anything, See SIM800 manual, wait for SIM800 startup
   //unsigned long t = millis();
-  DEBUG_PRINTLN(F("Enviando AT"));
+  //DEBUG_PRINTLN(F("Enviando AT"));
   sim800.println("AT");
   sim800.flush();
   Sim800_checkResponse(500);
@@ -824,24 +825,27 @@ bool Sim800_Connect(){
       return false;                             //Timeout connecting to SIM800
     }
   }*/
-  DEBUG_PRINTLN(F("Enviando AT+CFUN=1"));       //Set Full Mode
+  //DEBUG_PRINTLN(F("Enviando AT+CFUN=1"));       //Set Full Mode
   sim800.println(F("AT+CFUN=1"));
   sim800.flush();
   Sim800_checkResponse(500);
-  DEBUG_PRINTLN(F("Enviando AT+CMGF=1"));
+  //DEBUG_PRINTLN(F("Enviando AT+CMGF=1"));
   sim800.println(F("AT+CMGF=1"));                  //SMS text mode
   sim800.flush();
   Sim800_checkResponse(500);
-  DEBUG_PRINTLN(F("Enviando ATS0=2"));
+  //DEBUG_PRINTLN(F("Enviando ATS0=2"));
   sim800.println(F("ATS0=2"));                  //Atender al segundo Ring
   sim800.flush();
   Sim800_checkResponse(500);
-  DEBUG_PRINTLN(F("Enviando AT+DDET=1,0,0,0"));
+  //DEBUG_PRINTLN(F("Enviando AT+DDET=1,0,0,0"));
   sim800.println(F("AT+DDET=1,0,0,0"));                  //Detección de códigos DTMF
   sim800.flush();
   Sim800_checkResponse(500);
-  DEBUG_PRINTLN(F("Enviando AT+IPR?"));
+  //DEBUG_PRINTLN(F("Enviando AT+IPR?"));
   sim800.println(F("AT+IPR?"));                   //Auto Baud Rate Serial Port Configuration (0 is auto)
+  sim800.flush();
+  Sim800_checkResponse(500);
+  sim800.println(F("AT+CMGDA=\"DEL ALL\""));                   //Borrar todos los mensajes
   sim800.flush();
   Sim800_checkResponse(500);
   return true;
@@ -935,7 +939,7 @@ void parseData(String buff){
       break;
     }
     buff.trim();
-    DEBUG_PRINTLN("respuesta sin comando enviado: -" + buff + "-");
+    //DEBUG_PRINTLN("respuesta sin comando enviado: -" + buff + "-");
   }
   //////////////////////////////////////////////////
 
@@ -943,11 +947,11 @@ void parseData(String buff){
   if(index > -1 && index < int(buff.length()-1)){  //hay más de 1 repuesta, la divido para analizar luego el final
     buff2 = buff.substring(index+2);
     buff2.trim();
-    DEBUG_PRINTLN("queda para después: -" + buff2 + "-");
+    //DEBUG_PRINTLN("queda para después: -" + buff2 + "-");
     buff.remove(index);
     buff.trim();
   }
-  DEBUG_PRINTLN("queda para ahora: -" + buff + "-");
+  //DEBUG_PRINTLN("queda para ahora: -" + buff + "-");
   //////////////////////////////////////////////////
   if(buff == "RING"){
     SIM_RINGING = true;
@@ -1320,7 +1324,8 @@ bool Read_Zones_State(){
           }
         }
         if (ESP_ARMED && ZONE_STATE[i] != s){       //Zone had a new trigger -> register it
-          ZONE_COUNT[i] += 1;
+          ZONE_COUNT[i]++;
+          DEBUG_PRINTLN("Zone" + String(i) + "triggered!");
         }
       }
       else{
