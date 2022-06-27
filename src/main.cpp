@@ -256,6 +256,7 @@ bool ReadyToArm = false;
 bool ZONE_DISABLED[SIZEOF_ZONE]; //if the zone has auto disable function enabled, this array will mask them.
 bool ZONE_COUNT[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
 uint8_t ZONE_STATE[SIZEOF_ZONE]; //the state of the zones (las/previous reading).
+bool ZONE_TRIGGERED[SIZEOF_ZONE]; //the zone is triggered.
 
 #define SIM800_RING_RESET_PIN D3    //input and output pin, used to reset the sim800
 const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};
@@ -765,12 +766,16 @@ String AlarmStatusText(){
   String msg="";
   msg = "Armed " + String(ESP_ARMED?"1":"0");
   msg += ", Fired " + String(ESP_FIRED?"1":"0");
+  msg += ", Ready " + String(Read_Zones_State()?"1":"0");
+  msg += ", ReadyToArm " + String(ReadyToArm?"1":"0");
   msg += ", Bat " + String(readVoltage());
   for (int i = 0; i < SIZEOF_ZONE; i++){
-    if (ZONE_COUNT[i]>0 || ZONE_DISABLED[i]){
+    if (ZONE_COUNT[i]>0 || ZONE_TRIGGERED[i] || ZONE_DISABLED[i]){
       msg += ", Zone" + String(i);
       if (ZONE_DISABLED[i])
         msg += " DIS";
+      if (ZONE_TRIGGERED[i])
+        msg += " TRIG";
       if (ZONE_COUNT[i]>0)
         msg += " count:" + String(ZONE_COUNT[i]);
     }
@@ -784,6 +789,10 @@ String AlarmStatusText(){
         msg += " FORCED";
     }
   }
+/*      for (int i = 0; i < SIZEOF_ZONE; i++){
+        text += ", Zone " + String(i) + " = " + String(ZONE_STATE[i]==HIGH? "1" : "0");
+      }
+*/
   return msg;
 }
 
@@ -1051,8 +1060,10 @@ void AlarmDisarm(){
     ESP_FIRED = false;
     ESP_FIREDELAY = false;
     ESP_FIREDTOUT = false;
-    for(int i=0; i < SIZEOF_ZONE; i++)
+    for(int i=0; i < SIZEOF_ZONE; i++){
       ZONE_COUNT[i] = 0;
+      ZONE_TRIGGERED[i] = false;
+    }
 }
 
 SmsMessage extractSms(String buff){
@@ -1100,7 +1111,11 @@ void doAction(String msg, String phone){
   String text;
   uint8_t z;
   if(msg == "s"){
-    SmsReponse(AlarmStatusText(), phone, true);
+    #ifdef DEBUG
+      SmsReponse(AlarmStatusText(), phone, false);
+    #else
+      SmsReponse(AlarmStatusText(), phone, true);
+    #endif
   }
   else if(msg == "a"){
     if (ReadyToArm){
@@ -1109,9 +1124,7 @@ void doAction(String msg, String phone){
     }
     else {
       text = "Alarm NOT Armed, Zone Triggered";
-      for (int i = 0; i < SIZEOF_ZONE; i++){
-        text += ", Zone " + String(i) + " = " + String(ZONE_STATE[i]==HIGH? "1" : "0");
-      }
+      text += AlarmStatusText();
       SmsReponse(text, phone, false);
     }
   }
@@ -1164,17 +1177,6 @@ void doAction(String msg, String phone){
       }
     }
   }
-  /*else if(msg == "llamame"){
-    sim800.println(F("ATD+543414xxxxxx;")); //make call  println evita tener q poner \r al final
-    DEBUG_PRINTLN(F("llamada iniciada"));
-    Espera(15000);
-    sim800.println(F("ATH")); //hang up
-    DEBUG_PRINTLN(F("llamada finalizada"));
-  }*/
-  /*smsStatus = "";
-  senderNumber="";
-  receivedDate="";
-  msg="";  */
 }
 
 void SmsReponse(String text, String phone, bool forced){
@@ -1292,6 +1294,7 @@ bool Read_Zones_State(){
       s = digitalRead(GPIO_ID_PIN(ZONE_PIN[i]));
       if ((alarmConfig.Zone[i].TriggerNC && s == HIGH) || (!alarmConfig.Zone[i].TriggerNC && s == LOW)){
         zonesOk = false;
+        ZONE_TRIGGERED[i] = true;
         if (ESP_ARMED && !ESP_FIRED){
           if (ESP_FIREDELAY){                                           //Was previously triggered a delayed zone
             if ((RTCmillis() - ESP_FIREDELAY_MILLIS)/1000 > alarmConfig.Zone[i].DelayOnSecs){
@@ -1319,6 +1322,9 @@ bool Read_Zones_State(){
         if (ESP_ARMED && ZONE_STATE[i] != s){       //Zone had a new trigger -> register it
           ZONE_COUNT[i] += 1;
         }
+      }
+      else{
+        ZONE_TRIGGERED[i] = false;
       }
       ZONE_STATE[i] = s;
     }
