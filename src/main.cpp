@@ -345,6 +345,7 @@ void setup() {
     pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);
     ZONE_DISABLED[i] = false;
     ZONE_COUNT[i] = 0;
+    ZONE_TRIGGERED[i] = false;
   }
 
   for (int i = 0; i < SIZEOF_SIREN; i++){
@@ -767,8 +768,8 @@ String AlarmStatusText(){
   String msg="";
   msg = "Armed " + String(ESP_ARMED?"1":"0");
   msg += ", Fired " + String(ESP_FIRED?"1":"0");
-  msg += ", Ready " + String(Read_Zones_State()?"1":"0");
-  msg += ", ReadyToArm " + String(ReadyToArm?"1":"0");
+  //msg += ", Ready " + String(Read_Zones_State()?"1":"0");
+  msg += ", Ready " + String(ReadyToArm?"1":"0");
   msg += ", Bat " + String(readVoltage());
   for (int i = 0; i < SIZEOF_ZONE; i++){
     if (ZONE_COUNT[i]>0 || ZONE_TRIGGERED[i] || ZONE_DISABLED[i]){
@@ -790,10 +791,6 @@ String AlarmStatusText(){
         msg += " FORCED";
     }
   }
-/*      for (int i = 0; i < SIZEOF_ZONE; i++){
-        text += ", Zone " + String(i) + " = " + String(ZONE_STATE[i]==HIGH? "1" : "0");
-      }
-*/
   return msg;
 }
 
