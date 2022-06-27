@@ -101,6 +101,8 @@ String HTMLConfig = "";
 #define CLOSED 9
 #define READY_TO_RECEIVE 10 // basically SMSGOOD means >
 #define OK 11
+#define SIM800_TIMEOUT 500  //ms for AT command answer timeout
+#define SIM800_REPS 3 //number of AT command repetitions when ERROR or timout instead of OK
 
 #define SIM800baudrate 9600   //too fast generates issues when receibing SMSs, buffer is overloaded and the SMS AT arrives incomplete
 #define DEBUGbaudrate 115200
@@ -285,10 +287,10 @@ bool Sim800_setFullMode();
 void parseData(String buff);
 SmsMessage extractSms(String buff);
 void doAction(String msg, String phone);
-void Espera(unsigned int TiempoMillis);
+void DelayYield(unsigned int TiempoMillis);
 void Sleep_Forced();
 float readVoltage();
-void printMillis();
+//void printMillis();
 void WakeUpCallBackFunction();
 void ConfigDefault(propAlarm &pa);
 void ConfigWifi();
@@ -316,6 +318,8 @@ void AlarmDisarm();
 void Sim800_ManageCommunication();
 void Sim800_ManageCommunicationOnCall(unsigned long timeout);
 String AlarmStatusText();
+void AlarmLoop();
+void Sim800_Send(String atcmd);
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -412,25 +416,14 @@ void setup() {
 
 void loop() {
   static bool espFiredPrev = false;
-  ReadyToArm = Read_Zones_State();
+
+  AlarmLoop();
 
   //wake sim800 and read messages
   if (SIM_RINGING && SIM_SLEEPING){
     Sim800_disableSleep();
   }
   Sim800_ManageCommunication();
-
-  //DEBUG_PRINT(F("."));
-
-  //write outputs:
-  for (int i=0; i < SIZEOF_SIREN; i++){
-    if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
-      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
-    }
-    else{
-      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
-    }
-  }
 
   //Call and send SMSs if fired or battery low
   if (ESP_FIRED && !espFiredPrev){  //if alarm was just fired
@@ -445,7 +438,7 @@ void loop() {
   if (1 == 2 && !SIM_ONCALL && !SIM_RINGING && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){
     if (!SIM_SLEEPING){
       Sim800_enterSleepMode();
-      Espera(500);
+      DelayYield(500);
     }
     Sleep_Forced();
   }
@@ -461,7 +454,7 @@ void loop() {
     DEBUG_PRINTLN(F("Enviando AT+CPAS"));
     sim800.println(F("AT+CPAS")); // activity of phone: 0 Ready, 2 Unknown, 3 Ringing, 4 Call in progress
     sim800.flush();
-    //Espera(5000);
+    //DelayYield(5000);
   }
   if (waitingCPAS && (millis() - startT < 20000))
     waitingCPAS = false;          //reseteo porque ya hubo respuesta
@@ -469,18 +462,33 @@ void loop() {
     sleepTime = false;
     server.end(); //Ends the AP Web Server, as configuration is only at startup.
     delay(10);
-    Espera(500);
+    DelayYield(500);
     Sim800_enterSleepMode();
     //sim800.end();
-    Espera(500);
+    DelayYield(500);
     //disable all timers
-    //Espera(5000);
+    //DelayYield(5000);
     Sleep_Forced();
     Sim800_disableSleep();
     //revisar si estoy en una llamada o si llegó un nuevo mensaje
     startT = millis();
     waitingCPAS = false;
   }*/
+}
+
+void AlarmLoop(){
+  //read inputs:
+  ReadyToArm = Read_Zones_State();
+
+  //write outputs:
+  for (int i=0; i < SIZEOF_SIREN; i++){
+    if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
+      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+    }
+    else{
+      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+    }
+  }
 }
 
 void InsertExtractLine(String description, String &text, String &ins_ext, bool insert){
@@ -655,7 +663,7 @@ void ConfigWifi(){
   //WiFi.mode(WIFI_AP_STA);
   //WiFi.softAPConfig(webserver_IP, webserver_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00  
   WiFi.softAP(AP_SSID, AP_PASS);  //Remove the password parameter, if you want the AP (Access Point) to be open
-  Espera(100);
+  DelayYield(100);
 
   //IPAddress IP = ;
   DEBUG_PRINT(F("Soft AP IP address: "));
@@ -803,6 +811,59 @@ void AlarmFiredCallAdvise(){
   }
 }
 
+void Sim800_Send(String atcmd)
+{
+  unsigned long t;
+  int index;
+  String ans, line;
+  bool failed;
+  for (int i = 0; i < SIM800_REPS; i++){
+
+    AlarmLoop();      //Check inputs status from time to time
+
+    sim800.println(atcmd);
+    sim800.flush();
+    
+    t = millis();
+    failed = false;
+    while(millis() - t < SIM800_TIMEOUT && !failed)         // loop through until there is a timeout or a response from the device
+    {
+      yield();
+      if(sim800.available()) //check if the device is sending a message
+      {
+        ans = sim800.readString(); // reads the response
+        DEBUG_PRINTLN(ans);
+        while (ans.length()>0){
+          index = ans.indexOf("\r");
+          if(index > -1 && index < int(ans.length()-1)){  //hay más de 1 repuesta, la divido para analizar luego el final
+            line = ans.substring(index+2);
+            ans.remove(index);
+            ans.trim();
+          } else {
+            line = ans;
+            ans = "";
+          }
+          line.trim();
+          if(line == "OK"){           //AT command OK, exit
+            if (ans.length()>0)
+              Sim800_Buffer_Add(ans); //in case any non requested command is received
+            DEBUG_PRINTLN(F("OK DETECTED"));
+            return;
+          } else if(line == "ERROR"){ //AT command error, retry
+            if (ans.length()>0)
+              Sim800_Buffer_Add(ans); //in case any non requested command is received
+            failed = true;
+            DEBUG_PRINTLN(F("ERROR DETECTED"));
+            break;
+          } else {
+            Sim800_Buffer_Add(line); //in case any non requested command is received
+          }
+        }
+      }
+    }
+  }
+}
+
 bool Sim800_Connect(){
   //byte result;
   //unsigned long startT;
@@ -813,6 +874,9 @@ bool Sim800_Connect(){
   //unsigned long t = millis();
   //DEBUG_PRINTLN(F("Enviando AT"));
   sim800.println("AT");
+  sim800.flush();
+  Sim800_checkResponse(500);
+  sim800.println("ATE0");             //No ECHO (AT commands will not be sent back as echo)
   sim800.flush();
   Sim800_checkResponse(500);
   //delay(120);
@@ -862,7 +926,7 @@ bool Sim800_enterSleepMode(){
 bool Sim800_disableSleep(){
   sim800.println(F("AT"));    // first we need to send something random for as long as 100ms
   //sim800.flush();
-  //Espera(120);                // this is between waking charaters and next AT commands  //120
+  //DelayYield(120);                // this is between waking charaters and next AT commands  //120
   Sim800_checkResponse(2000); // just incase something pops up, next AT command has to be sent before 5secs after first AT.
   sim800.println(F("AT+CSCLK=0"));
   if(Sim800_checkResponse(5000) == OK){
@@ -886,8 +950,6 @@ byte Sim800_checkResponse(unsigned long timeout){
     {
       String tempData = sim800.readString(); // reads the response
       DEBUG_PRINTLN(tempData);
-      //rta=tempData;
-      //char *mydataIn = strdup(tempData.c_str()); // convertss to char data from
       /*
       * Checks for the status response
       * Response are - OK, ERROR, READY, >, CONNECT OK
@@ -908,7 +970,7 @@ byte Sim800_checkResponse(unsigned long timeout){
         if(tempData.indexOf(_responseInfo[i]) > -1)// != NULL)
         {
           Status = i;
-          DEBUG_PRINTLN("Status number: " + i);
+          //DEBUG_PRINTLN("Status number: " + i);
           return Status;
         }
       }
@@ -1207,7 +1269,7 @@ void SmsReponse(String text, String phone, bool forced){
     sim800.write(26);
     sim800.println();
     sim800.flush();
-    Espera(5000);    //because if other AT command is sent, will be ignored for a while.
+    DelayYield(5000);    //because if other AT command is sent, will be ignored for a while.
   }
 }
 
@@ -1220,7 +1282,7 @@ void CallReponse(String text, String phone, bool forced){
     DEBUG_PRINTLN("ATD" + phone + ";");
     sim800.println("ATD" + phone + ";"); //make call  println evita tener q poner \r al final  //Your phone number don't forget to include your country code, example +212123456789"
     sim800.flush();
-    //Espera(20000);
+    //DelayYield(20000);
     Sim800_ManageCommunicationOnCall(20000); //in case the call is attended and some DTMF sent
     sim800.println(F("ATH")); //hang up
     sim800.flush();
@@ -1437,11 +1499,11 @@ float readVoltage() { // read internal VCC
   return analogRead(A0) * 14.75 / 1000;
 }
 
-void printMillis() {
+/*void printMillis() {
   DEBUG_PRINT(F("millis() = "));  // show that millis() isn't correct across most Sleep modes
   DEBUG_PRINTLN(millis());
   DEBUG_FLUSH;  // needs a Serial.flush() else it may not print the whole message before sleeping
-}
+}*/
 
 void Sim800_Buffer_Add(String item){
   if (Sim800_Buffer_Count >= 49)
@@ -1542,7 +1604,7 @@ void initWiFi() {
 }
 */
 
-void Espera(unsigned int TiempoMillis)
+void DelayYield(unsigned int TiempoMillis)
 {
   unsigned long startTiempoMillis = millis();
   while (millis() - startTiempoMillis < TiempoMillis) { //tengo q restar en ese orden para que funcione siempre bien
