@@ -101,7 +101,7 @@ String HTMLConfig = "";
 #define CLOSED 9
 #define READY_TO_RECEIVE 10 // basically SMSGOOD means >
 #define OK 11
-#define SIM800_TIMEOUT 500  //ms for AT command answer timeout
+#define SIM800_TIMEOUT 500  //min time tbwn AT commands: 120ms (for AT command answer timeout)
 #define SIM800_REPS 3 //number of AT command repetitions when ERROR or timout instead of OK
 
 #define SIM800baudrate 9600   //too fast generates issues when receibing SMSs, buffer is overloaded and the SMS AT arrives incomplete
@@ -319,7 +319,10 @@ void Sim800_ManageCommunication();
 void Sim800_ManageCommunicationOnCall(unsigned long timeout);
 String AlarmStatusText();
 void AlarmLoop();
-void Sim800_Send(String atcmd);
+bool Sim800_Send(String atcmd);
+void Sim800_HardReset();
+void Sim800_RemoveEcho(String &buff);
+String Sim800_NextLine(String &buff);
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -749,10 +752,7 @@ void Sim800_ManageCommunication(){
       readstr = Serial.readString();
       DEBUG_PRINTLN("Enviando: -" + readstr + "-");
       if (readstr == "reset sim800\n"){
-        pinMode(SIM800_RING_RESET_PIN, OUTPUT);
-        digitalWrite(SIM800_RING_RESET_PIN, LOW);
-        delay(150);                                     //T reset pull down has to be > 105ms
-        pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP);
+        Sim800_HardReset();
       }
       else if (readstr == "battery\n"){
         DEBUG_PRINTLN("Battery voltage: " + String(readVoltage()));
@@ -811,7 +811,7 @@ void AlarmFiredCallAdvise(){
   }
 }
 
-void Sim800_Send(String atcmd)
+bool Sim800_Send(String atcmd)
 {
   unsigned long t;
   int index;
@@ -821,6 +821,7 @@ void Sim800_Send(String atcmd)
 
     AlarmLoop();      //Check inputs status from time to time
 
+    DEBUG_PRINTLN(F("SENDING AT COMMAND: ") + atcmd);
     sim800.println(atcmd);
     sim800.flush();
     
@@ -834,6 +835,7 @@ void Sim800_Send(String atcmd)
         ans = sim800.readString(); // reads the response
         DEBUG_PRINTLN(ans);
         while (ans.length()>0){
+          Sim800_RemoveEcho(ans);
           index = ans.indexOf("\r");
           if(index > -1 && index < int(ans.length()-1)){  //hay más de 1 repuesta, la divido para analizar luego el final
             line = ans.substring(index+2);
@@ -848,7 +850,7 @@ void Sim800_Send(String atcmd)
             if (ans.length()>0)
               Sim800_Buffer_Add(ans); //in case any non requested command is received
             DEBUG_PRINTLN(F("OK DETECTED"));
-            return;
+            return true;
           } else if(line == "ERROR"){ //AT command error, retry
             if (ans.length()>0)
               Sim800_Buffer_Add(ans); //in case any non requested command is received
@@ -862,63 +864,97 @@ void Sim800_Send(String atcmd)
       }
     }
   }
+  return false; //not OK detected in any try
+}
+
+void Sim800_RemoveEcho(String &buff)  //Removes received "AT Command ECHO"
+{
+  int index;
+  buff.trim();
+  //text.toUpperCase();
+  while(buff.substring(0,2) == "AT"){ //por si hay varios comandos encadenados que ese enviaron juntos
+    index = buff.indexOf("\r");
+    if(index>-1){
+      buff.remove(0, index+2);
+    } else {
+      break;
+    }
+    buff.trim();
+  }
+  DEBUG_PRINTLN("From SIM800L wo echo: -" + buff + "-");
+}
+
+String Sim800_NextLine(String &buff)  //Extracts the next line form the Sim800 answer
+{
+  int index;
+  String next;
+  index = buff.indexOf("\r");
+  if(index > -1 && index < int(buff.length()-1)){  //hay más de 1 repuesta, la divido para analizar luego el final
+    next = buff.substring(index+2);
+    next.trim();
+    //DEBUG_PRINTLN("queda para después: -" + buff2 + "-");
+    buff.remove(index);
+    buff.trim();
+  }
+  return next;
+  //DEBUG_PRINTLN("queda para ahora: -" + buff + "-");
 }
 
 bool Sim800_Connect(){
-  //byte result;
-  //unsigned long startT;
   DEBUG_PRINTLN(F("Conectando SIM800"));
   sim800.begin(SIM800baudrate);//115200
   delay(120);
   while(Sim800_checkResponse(5000)!=TIMEOUT);   //5 secs without receibing anything, See SIM800 manual, wait for SIM800 startup
-  //unsigned long t = millis();
   //DEBUG_PRINTLN(F("Enviando AT"));
-  sim800.println("AT");
+  Sim800_Send(F("AT"));
+  /*sim800.println("AT");
   sim800.flush();
-  Sim800_checkResponse(500);
-  sim800.println("ATE0");             //No ECHO (AT commands will not be sent back as echo)
+  Sim800_checkResponse(500);*/
+  Sim800_Send(F("ATE0"));
+  /*sim800.println("ATE0");             //No ECHO (AT commands will not be sent back as echo)
   sim800.flush();
-  Sim800_checkResponse(500);
-  //delay(120);
-  /*while(Sim800_checkResponse(2000)!=OK){
-    if (millis() - t > 60000){
-      DEBUG_PRINTLN(F("AT sin respuesta"));
-      return false;                             //Timeout connecting to SIM800
-    }
-  }*/
+  Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+CFUN=1"));       //Set Full Mode
-  sim800.println(F("AT+CFUN=1"));
+  Sim800_Send(F("AT+CFUN=1"));
+  /*sim800.println(F("AT+CFUN=1"));
   sim800.flush();
-  Sim800_checkResponse(500);
+  Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+CMGF=1"));
-  sim800.println(F("AT+CMGF=1"));                  //SMS text mode
+  Sim800_Send(F("AT+CMGF=1"));
+  /*sim800.println(F("AT+CMGF=1"));                  //SMS text mode
   sim800.flush();
-  Sim800_checkResponse(500);
+  Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando ATS0=2"));
-  sim800.println(F("ATS0=2"));                  //Atender al segundo Ring
+  Sim800_Send(F("ATS0=2"));
+  /*sim800.println(F("ATS0=2"));                  //Atender al segundo Ring
   sim800.flush();
-  Sim800_checkResponse(500);
+  Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+DDET=1,0,0,0"));
-  sim800.println(F("AT+DDET=1,0,0,0"));                  //Detección de códigos DTMF
+  Sim800_Send(F("AT+DDET=1,0,0,0"));
+  /*sim800.println(F("AT+DDET=1,0,0,0"));                  //Detección de códigos DTMF
   sim800.flush();
-  Sim800_checkResponse(500);
+  Sim800_checkResponse(500);*/
+  Sim800_Send(F("AT+CMGDA=\"DEL ALL\""));
+  /*sim800.println(F("AT+CMGDA=\"DEL ALL\""));                   //Borrar todos los mensajes
+  sim800.flush();
+  Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+IPR?"));
-  sim800.println(F("AT+IPR?"));                   //Auto Baud Rate Serial Port Configuration (0 is auto)
+  Sim800_Send(F("AT+IPR?"));
+  /*sim800.println(F("AT+IPR?"));                   //Auto Baud Rate Serial Port Configuration (0 is auto)
   sim800.flush();
-  Sim800_checkResponse(500);
-  sim800.println(F("AT+CMGDA=\"DEL ALL\""));                   //Borrar todos los mensajes
-  sim800.flush();
-  Sim800_checkResponse(500);
+  Sim800_checkResponse(500);*/
   return true;
 }
 
 bool Sim800_enterSleepMode(){
-  sim800.println(F("AT+CSCLK=2")); // enable automatic sleep
-  if(Sim800_checkResponse(5000) == OK){
+  //sim800.println(F("AT+CSCLK=2")); // enable automatic sleep
+  //if(Sim800_checkResponse(5000) == OK){
+  if (Sim800_Send(F("AT+CSCLK=2"))){
     DEBUG_PRINTLN(F("SIM800L sleeping OK"));
     return true;
   } else {
-    DEBUG_PRINTLN(F("SIM800L sleeping FAILED"));
+    DEBUG_PRINTLN(F("SIM800L sleeping FAILED, hard reseting it"));
+    Sim800_HardReset();
     return false;  
   }
 }
@@ -928,14 +964,24 @@ bool Sim800_disableSleep(){
   //sim800.flush();
   //DelayYield(120);                // this is between waking charaters and next AT commands  //120
   Sim800_checkResponse(2000); // just incase something pops up, next AT command has to be sent before 5secs after first AT.
-  sim800.println(F("AT+CSCLK=0"));
-  if(Sim800_checkResponse(5000) == OK){
+  //sim800.println(F("AT+CSCLK=0"));
+  //if(Sim800_checkResponse(5000) == OK){
+  if (Sim800_Send(F("AT+CSCLK=0"))){
     DEBUG_PRINTLN(F("SIM800L awake OK"));
     return true;
   } else {
-    DEBUG_PRINTLN(F("SIM800L awake FAILED"));
+    DEBUG_PRINTLN(F("SIM800L awake FAILED, hard reseting it"));
+    Sim800_HardReset();
     return false;  
   }
+}
+
+void Sim800_HardReset(){
+  pinMode(SIM800_RING_RESET_PIN, OUTPUT);
+  digitalWrite(SIM800_RING_RESET_PIN, LOW);
+  delay(150);                                     //T reset pull down has to be > 105ms
+  pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP);
+  Sim800_Connect();
 }
 
 byte Sim800_checkResponse(unsigned long timeout){
@@ -981,13 +1027,14 @@ byte Sim800_checkResponse(unsigned long timeout){
 }
 
 void parseData(String buff){
-  //La respuesta del SIM800l es "[comando enviado]\r[respuesta]"
-  DEBUG_PRINTLN("respuesta completa recibida: -" + buff + "-");
+  //SIM800L answer could be "[AT command ECHO]\r[anwser]"
+  DEBUG_PRINTLN("From SIM800L: -" + buff + "-");
 
   String buff2="";
   int index;
-  //////////////////////////////////////////////////
-  //Remove sent "AT Command" from the response string.
+  
+  Sim800_RemoveEcho(buff);
+  /*//Remove sent "AT Command ECHO":
   buff.trim();
   buff.toUpperCase();
   while(buff.substring(0,2) == "AT"){ //por si hay varios comandos encadenados que ese enviaron juntos
@@ -999,10 +1046,11 @@ void parseData(String buff){
     }
     buff.trim();
     //DEBUG_PRINTLN("respuesta sin comando enviado: -" + buff + "-");
-  }
-  //////////////////////////////////////////////////
+  }*/
 
-  index = buff.indexOf("\r");
+  buff2 = buff;
+  buff = Sim800_NextLine(buff2);
+  /*index = buff.indexOf("\r");
   if(index > -1 && index < int(buff.length()-1)){  //hay más de 1 repuesta, la divido para analizar luego el final
     buff2 = buff.substring(index+2);
     buff2.trim();
@@ -1011,7 +1059,7 @@ void parseData(String buff){
     buff.trim();
   }
   //DEBUG_PRINTLN("queda para ahora: -" + buff + "-");
-  //////////////////////////////////////////////////
+  //////////////////////////////////////////////////*/
   if(buff == "RING"){
     SIM_RINGING = true;
     //resetear dtmf
