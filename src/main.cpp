@@ -319,7 +319,8 @@ void Sim800_ManageCommunication();
 void Sim800_ManageCommunicationOnCall(unsigned long timeout);
 String AlarmStatusText();
 void AlarmLoop();
-bool Sim800_Send(String atcmd);
+bool Sim800_WriteCommand(String atcmd);
+String Sim800_ReadCommand(String atcmd);
 void Sim800_HardReset();
 void Sim800_RemoveEcho(String &buff);
 String Sim800_NextLine(String &buff);
@@ -479,7 +480,9 @@ void loop() {
   }*/
 }
 
-void AlarmLoop(){
+void AlarmLoop()
+{
+  //***************test if it was read too recently, skip this read ******
   //read inputs:
   ReadyToArm = Read_Zones_State();
 
@@ -811,7 +814,7 @@ void AlarmFiredCallAdvise(){
   }
 }
 
-bool Sim800_Send(String atcmd)
+bool Sim800_WriteCommand(String atcmd)  // atcmd="AT+<x>=<…>" Sets the user-definable parameter values
 {
   unsigned long t;
   int index;
@@ -821,7 +824,7 @@ bool Sim800_Send(String atcmd)
 
     AlarmLoop();      //Check inputs status from time to time
 
-    DEBUG_PRINTLN(F("SENDING AT COMMAND: ") + atcmd);
+    DEBUG_PRINTLN(F("Sending AT Write Command: ") + atcmd);
     sim800.println(atcmd);
     sim800.flush();
     
@@ -836,16 +839,7 @@ bool Sim800_Send(String atcmd)
         DEBUG_PRINTLN(ans);
         while (ans.length()>0){
           Sim800_RemoveEcho(ans);
-          index = ans.indexOf("\r");
-          if(index > -1 && index < int(ans.length()-1)){  //hay más de 1 repuesta, la divido para analizar luego el final
-            line = ans.substring(index+2);
-            ans.remove(index);
-            ans.trim();
-          } else {
-            line = ans;
-            ans = "";
-          }
-          line.trim();
+          line = Sim800_NextLine(ans);
           if(line == "OK"){           //AT command OK, exit
             if (ans.length()>0)
               Sim800_Buffer_Add(ans); //in case any non requested command is received
@@ -867,6 +861,150 @@ bool Sim800_Send(String atcmd)
   return false; //not OK detected in any try
 }
 
+String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>?" or "AT<x><n>" or "AT&<x><n>" and response "+<cmd>: <...>" or "<...>" Returns the currently set value of the parameter or parameters.
+{
+  String cmd="";
+  unsigned long t;
+  int index;
+  String ans, line, rta;
+  bool failed;
+  for (int i = 0; i < SIM800_REPS; i++){
+
+    AlarmLoop();      //Check inputs status from time to time
+
+    DEBUG_PRINTLN(F("Sending AT Read Command: ") + atcmd);
+    sim800.println(atcmd);
+    sim800.flush();
+    
+    //Extract command:
+    if (atcmd.substring(0,3) == "AT+"){
+      index = atcmd.indexOf("?");
+      if(index > -1)
+        cmd = atcmd.substring(2, index);  //including the +
+      else
+        cmd = atcmd.substring(2);
+      DEBUG_PRINTLN(F("AT Read Command Answer Header: ") + cmd);
+    }
+
+    t = millis();
+    failed = false;
+    while(millis() - t < SIM800_TIMEOUT && !failed)         // loop through until there is a timeout or a response from the device
+    {
+      yield();
+      if(sim800.available()) //check if the device is sending a message
+      {
+        ans = sim800.readString(); // reads the response
+        DEBUG_PRINTLN(F("From Sim800: ") + ans);
+
+        while (ans.length()>0)
+        {
+          Sim800_RemoveEcho(ans);
+          line = Sim800_NextLine(ans);
+          while(Sim800_UnsolicitedResultCode(line))
+            line = Sim800_NextLine(ans);
+          
+          if (line.length() > 0)
+          {
+            rta = line;
+            if(cmd.length() > 0 && line.substring(0, cmd.length()) == cmd)
+            {
+              index = line.indexOf(":");
+              if(index > -1)
+                rta = atcmd.substring(index+1);
+            }
+            rta.trim();
+
+            if (ans.length() > 0)
+              Sim800_Buffer_Add(ans); //in case any non requested command is received
+
+            DEBUG_PRINTLN(F("AT Read Command Answer: ") + rta);
+            return rta;
+          }
+        }
+      }
+    }
+  }
+  return "";
+}
+
+bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Result Code in the line, takes care of it and returns true
+{
+  if(line == "RING"){
+    SIM_RINGING = true;
+    DTMFs="";
+    DEBUG_PRINTLN("From Sim800: RINGING");
+  }
+  else if(line == "NO CARRIER"){
+    SIM_RINGING = false;
+    SIM_ONCALL = false;
+    DTMFs="";
+    DEBUG_PRINTLN("From Sim800: CALL ENDED");
+  }
+  else
+  {
+    if (line.substring(0,1) = "+")
+    {
+      int index = line.indexOf(":");
+      if (index > -1)
+      {
+        String cmd = line.substring(0, index);
+        String rta = line.substring(index+1);
+        rta.trim();
+
+        if(cmd == "+DTMF")
+        {
+          ESP8266SAM *sam = new ESP8266SAM;
+          String text;
+          text = "Alarm is Armed " + String(ESP_ARMED?"1":"0");
+          text += ", Fired " + String(ESP_FIRED?"1":"0");
+          text += ", Battery " + String(readVoltage());
+          sam->Say(out, text.c_str()); //"Alarm is Armed! ALARM IS ARMED! alarm is armed"
+          delay(500);
+          delete sam;
+
+          //acumular dtmf
+          DTMFs += rta;
+          DEBUG_PRINTLN("DTMF DETECTADO: " + rta);
+          DEBUG_PRINTLN("DTMFs: " + DTMFs);
+          if(DTMFs==String(alarmConfig.OpPass)){
+            AlarmDisarm();
+            sim800.println(F("AT+CLDTMF=10,\"1,5,1\""));
+            sim800.flush();
+            delay(120);
+            DTMFs="";
+          }
+        }
+        else if(cmd == "+CMTI"){
+          //get newly arrived memory location and store it in temp
+          index = rta.indexOf(",");
+          String temp = rta.substring(index+1, rta.length()); 
+          temp = "AT+CMGR=" + temp; //+ "\r"; 
+          //get the message stored at memory location "temp"
+          DEBUG_PRINTLN("Pidiendo mensaje: " + temp);
+          //sim800.println(temp);
+          Sim800_ReadCommand(temp); ESTOY ACAAA, poner acá abajo la lectura y acción del mensaje
+        }
+        //else if(line == "OK"){
+        //  DEBUG_PRINTLN("OK DETECTADO");
+        //}
+        else{
+          return false;
+        }
+
+
+
+      }
+    }
+
+  }
+  return true;
+}
+
+/*String Sim800_ExecutionCommand(String atcmd) // AT+<x> The execution command reads non-variable parameters affected by internal processes in the GSM engine.
+{
+
+}*/
+
 void Sim800_RemoveEcho(String &buff)  //Removes received "AT Command ECHO"
 {
   int index;
@@ -887,17 +1025,21 @@ void Sim800_RemoveEcho(String &buff)  //Removes received "AT Command ECHO"
 String Sim800_NextLine(String &buff)  //Extracts the next line form the Sim800 answer
 {
   int index;
-  String next;
-  index = buff.indexOf("\r");
-  if(index > -1 && index < int(buff.length()-1)){  //hay más de 1 repuesta, la divido para analizar luego el final
-    next = buff.substring(index+2);
+  String next = "";
+  while (next == "" && buff.length() > 0){
+    index = buff.indexOf("\r");
+    if(index > -1 && index < int(buff.length()-1)){  //there are remaining lines
+      next = buff.substring(index+2);
+      buff.remove(index);
+      buff.trim();
+    } else {
+      next = buff;
+      buff = "";
+    }
     next.trim();
-    //DEBUG_PRINTLN("queda para después: -" + buff2 + "-");
-    buff.remove(index);
-    buff.trim();
   }
+  DEBUG_PRINTLN("From SIM800L next line: -" + next + "-");
   return next;
-  //DEBUG_PRINTLN("queda para ahora: -" + buff + "-");
 }
 
 bool Sim800_Connect(){
@@ -906,40 +1048,40 @@ bool Sim800_Connect(){
   delay(120);
   while(Sim800_checkResponse(5000)!=TIMEOUT);   //5 secs without receibing anything, See SIM800 manual, wait for SIM800 startup
   //DEBUG_PRINTLN(F("Enviando AT"));
-  Sim800_Send(F("AT"));
+  Sim800_WriteCommand(F("AT"));
   /*sim800.println("AT");
   sim800.flush();
   Sim800_checkResponse(500);*/
-  Sim800_Send(F("ATE0"));
+  Sim800_WriteCommand(F("ATE0"));
   /*sim800.println("ATE0");             //No ECHO (AT commands will not be sent back as echo)
   sim800.flush();
   Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+CFUN=1"));       //Set Full Mode
-  Sim800_Send(F("AT+CFUN=1"));
+  Sim800_WriteCommand(F("AT+CFUN=1"));
   /*sim800.println(F("AT+CFUN=1"));
   sim800.flush();
   Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+CMGF=1"));
-  Sim800_Send(F("AT+CMGF=1"));
+  Sim800_WriteCommand(F("AT+CMGF=1"));
   /*sim800.println(F("AT+CMGF=1"));                  //SMS text mode
   sim800.flush();
   Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando ATS0=2"));
-  Sim800_Send(F("ATS0=2"));
+  Sim800_WriteCommand(F("ATS0=2"));
   /*sim800.println(F("ATS0=2"));                  //Atender al segundo Ring
   sim800.flush();
   Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+DDET=1,0,0,0"));
-  Sim800_Send(F("AT+DDET=1,0,0,0"));
+  Sim800_WriteCommand(F("AT+DDET=1,0,0,0"));
   /*sim800.println(F("AT+DDET=1,0,0,0"));                  //Detección de códigos DTMF
   sim800.flush();
   Sim800_checkResponse(500);*/
-  Sim800_Send(F("AT+CMGDA=\"DEL ALL\""));
+  Sim800_WriteCommand(F("AT+CMGDA=\"DEL ALL\""));
   /*sim800.println(F("AT+CMGDA=\"DEL ALL\""));                   //Borrar todos los mensajes
   sim800.flush();
   Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+IPR?"));
-  Sim800_Send(F("AT+IPR?"));
+  Sim800_WriteCommand(F("AT+IPR?"));
   /*sim800.println(F("AT+IPR?"));                   //Auto Baud Rate Serial Port Configuration (0 is auto)
   sim800.flush();
   Sim800_checkResponse(500);*/
@@ -949,7 +1091,7 @@ bool Sim800_Connect(){
 bool Sim800_enterSleepMode(){
   //sim800.println(F("AT+CSCLK=2")); // enable automatic sleep
   //if(Sim800_checkResponse(5000) == OK){
-  if (Sim800_Send(F("AT+CSCLK=2"))){
+  if (Sim800_WriteCommand(F("AT+CSCLK=2"))){
     DEBUG_PRINTLN(F("SIM800L sleeping OK"));
     return true;
   } else {
@@ -966,7 +1108,7 @@ bool Sim800_disableSleep(){
   Sim800_checkResponse(2000); // just incase something pops up, next AT command has to be sent before 5secs after first AT.
   //sim800.println(F("AT+CSCLK=0"));
   //if(Sim800_checkResponse(5000) == OK){
-  if (Sim800_Send(F("AT+CSCLK=0"))){
+  if (Sim800_WriteCommand(F("AT+CSCLK=0"))){
     DEBUG_PRINTLN(F("SIM800L awake OK"));
     return true;
   } else {
@@ -1114,7 +1256,7 @@ void parseData(String buff){
           DEBUG_PRINTLN("No estoy Sonando ni en llamada, ir a dormir");
         }
       }
-      else if(cmd == "+DTMF"){
+      /*else if(cmd == "+DTMF"){
         ESP8266SAM *sam = new ESP8266SAM;
         String text;
         text = "Alarm is Armed " + String(ESP_ARMED?"1":"0");
@@ -1145,7 +1287,7 @@ void parseData(String buff){
         //get the message stored at memory location "temp"
         DEBUG_PRINTLN("Pidiendo mensaje: " + temp);
         sim800.println(temp);
-      }
+      }*/
       else if(cmd == "+CMGR"){
         SmsMessage smsmsg = extractSms(buff + "\n\r" + buff2);  //en buff2 está el mensaje
 
