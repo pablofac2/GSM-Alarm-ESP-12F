@@ -285,6 +285,7 @@ String Sim800_AnswerString(uint16_t timeout);
 byte Sim800_checkResponse(unsigned long timeout);
 bool Sim800_setFullMode();
 void parseData(String buff);
+void parseDataOLD(String buff);
 SmsMessage extractSms(String buff);
 void doAction(String msg, String phone);
 void DelayYield(unsigned int TiempoMillis);
@@ -324,6 +325,8 @@ String Sim800_ReadCommand(String atcmd);
 void Sim800_HardReset();
 void Sim800_RemoveEcho(String &buff);
 String Sim800_NextLine(String &buff);
+bool Sim800_UnsolicitedResultCode(String line);
+
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -817,7 +820,7 @@ void AlarmFiredCallAdvise(){
 bool Sim800_WriteCommand(String atcmd)  // atcmd="AT+<x>=<…>" Sets the user-definable parameter values
 {
   unsigned long t;
-  int index;
+  //int index;
   String ans, line;
   bool failed;
   for (int i = 0; i < SIM800_REPS; i++){
@@ -865,7 +868,7 @@ String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>
 {
   String cmd="";
   unsigned long t;
-  int index;
+  int index, index2;
   String ans, line, rta;
   bool failed;
   for (int i = 0; i < SIM800_REPS; i++){
@@ -879,7 +882,13 @@ String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>
     //Extract command:
     if (atcmd.substring(0,3) == "AT+"){
       index = atcmd.indexOf("?");
-      if(index > -1)
+      index2 = atcmd.indexOf("=");
+      if (index > -1){
+        if (index2 > -1)
+          index = min(index, index2);
+      }else if (index2 > -1)
+        index = index2;
+      if (index > -1)
         cmd = atcmd.substring(2, index);  //including the +
       else
         cmd = atcmd.substring(2);
@@ -914,11 +923,25 @@ String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>
             }
             rta.trim();
 
+            //next lines until an OK is found, are part of the answer:
+            failed = true;
+            while (ans.length()>0)
+            {
+              line = Sim800_NextLine(ans);
+              if (line == "OK"){
+                failed = false;
+                break;
+              }
+              rta += "\n\r" + line;
+            }
+
             if (ans.length() > 0)
               Sim800_Buffer_Add(ans); //in case any non requested command is received
 
-            DEBUG_PRINTLN(F("AT Read Command Answer: ") + rta);
-            return rta;
+            if (!failed){
+              DEBUG_PRINTLN(F("AT Read Command Answer: ") + rta);
+              return rta;
+            }
           }
         }
       }
@@ -974,15 +997,18 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
             DTMFs="";
           }
         }
-        else if(cmd == "+CMTI"){
-          //get newly arrived memory location and store it in temp
+        else if(cmd == "+CMTI") //new SMS arrived
+        {
           index = rta.indexOf(",");
-          String temp = rta.substring(index+1, rta.length()); 
+          String temp = rta.substring(index + 1, rta.length()); //get newly arrived memory location and store it in temp
           temp = "AT+CMGR=" + temp; //+ "\r"; 
-          //get the message stored at memory location "temp"
-          DEBUG_PRINTLN("Pidiendo mensaje: " + temp);
+          
+          DEBUG_PRINTLN("From Sim800: SMS arrived at mem pos " + temp);
           //sim800.println(temp);
-          Sim800_ReadCommand(temp); ESTOY ACAAA, poner acá abajo la lectura y acción del mensaje
+          temp = Sim800_ReadCommand(temp); //get the message stored at memory location "temp"
+            
+          SmsMessage smsmsg = extractSms(temp);  //buff + "\n\r" + buff2);
+          doAction(smsmsg.Message, smsmsg.Phone);
         }
         //else if(line == "OK"){
         //  DEBUG_PRINTLN("OK DETECTADO");
@@ -990,20 +1016,11 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
         else{
           return false;
         }
-
-
-
       }
     }
-
   }
   return true;
 }
-
-/*String Sim800_ExecutionCommand(String atcmd) // AT+<x> The execution command reads non-variable parameters affected by internal processes in the GSM engine.
-{
-
-}*/
 
 void Sim800_RemoveEcho(String &buff)  //Removes received "AT Command ECHO"
 {
@@ -1081,14 +1098,34 @@ bool Sim800_Connect(){
   sim800.flush();
   Sim800_checkResponse(500);*/
   //DEBUG_PRINTLN(F("Enviando AT+IPR?"));
-  Sim800_WriteCommand(F("AT+IPR?"));
+  String ans = Sim800_ReadCommand(F("AT+IPR?"));
   /*sim800.println(F("AT+IPR?"));                   //Auto Baud Rate Serial Port Configuration (0 is auto)
   sim800.flush();
   Sim800_checkResponse(500);*/
+  String sim800brstr = String(SIM800baudrate);
+  sim800brstr.trim();
+  if(ans != sim800brstr){
+    DEBUG_PRINTLN("Adjusting default Serial SIM800 speed on " + sim800brstr);
+    Sim800_WriteCommand(F("AT+IPR=") + sim800brstr); //115200
+    //sim800.println(F("AT+IPR=") + sim800brstr); //115200
+    //sim800.flush();
+    //delay(120);
+    Sim800_WriteCommand(F("AT&W"));
+    //sim800.println(F("AT&W"));
+    //sim800.flush();
+    //delay(120);
+  }
   return true;
 }
 
 bool Sim800_enterSleepMode(){
+  //check if sim800 is not bussy:
+  String ans = Sim800_ReadCommand(F("AT+CPAS"));  // activity of phone: 0 Ready, 2 Unknown, 3 Ringing, 4 Call in progress
+  //sim800.println(F("AT+CPAS")); // activity of phone: 0 Ready, 2 Unknown, 3 Ringing, 4 Call in progress
+  if(ans == "3" || ans == "4"){  //Ringing or in call => wait to sleep
+    DEBUG_PRINTLN("SIM800L sleeping FAILED, it is bussy on call or ringing");
+    return false; 
+  }
   //sim800.println(F("AT+CSCLK=2")); // enable automatic sleep
   //if(Sim800_checkResponse(5000) == OK){
   if (Sim800_WriteCommand(F("AT+CSCLK=2"))){
@@ -1168,7 +1205,18 @@ byte Sim800_checkResponse(unsigned long timeout){
   return Status;
 }
 
-void parseData(String buff){
+void parseData(String buff)
+{
+  String line;
+  DEBUG_PRINTLN("From SIM800L: -" + buff + "-");
+  Sim800_RemoveEcho(buff);
+  while (buff.length()>0){
+    line = Sim800_NextLine(buff);
+    Sim800_UnsolicitedResultCode(line);
+  }
+}
+
+void parseDataOLD(String buff){
   //SIM800L answer could be "[AT command ECHO]\r[anwser]"
   DEBUG_PRINTLN("From SIM800L: -" + buff + "-");
 
@@ -1222,12 +1270,12 @@ void parseData(String buff){
   else{
     index = buff.indexOf(":");
     if(index>0){                                  //There's a command response
-      String cmd = buff.substring(0, index);
+      /*String cmd = buff.substring(0, index);
       DEBUG_PRINTLN("Comando: -" + cmd + "-");
       //DEBUG_PRINTLN("Buffer restante: -" + buff + "-");
       cmd.trim();
       buff.remove(0, index+2);
-      buff.trim();
+      buff.trim();*/
       /*
       //DEBUG_PRINTLN("Buffer restante sin comando: -" + buff + "-");
       index = buff.indexOf("\r");
@@ -1235,7 +1283,7 @@ void parseData(String buff){
       if(index>-1)
         buff.remove(index);
       buff.trim();*/
-      DEBUG_PRINTLN("Valor: -" + buff + "-");
+      /*DEBUG_PRINTLN("Valor: -" + buff + "-");
 
       if(cmd == "+IPR"){
         String sim800brstr = String(SIM800baudrate);
@@ -1255,7 +1303,7 @@ void parseData(String buff){
           sleepTime = true;
           DEBUG_PRINTLN("No estoy Sonando ni en llamada, ir a dormir");
         }
-      }
+      }*/
       /*else if(cmd == "+DTMF"){
         ESP8266SAM *sam = new ESP8266SAM;
         String text;
@@ -1287,7 +1335,7 @@ void parseData(String buff){
         //get the message stored at memory location "temp"
         DEBUG_PRINTLN("Pidiendo mensaje: " + temp);
         sim800.println(temp);
-      }*/
+      }
       else if(cmd == "+CMGR"){
         SmsMessage smsmsg = extractSms(buff + "\n\r" + buff2);  //en buff2 está el mensaje
 
@@ -1301,7 +1349,7 @@ void parseData(String buff){
         //if(senderNumber == PHONE){
           doAction(smsmsg.Message, smsmsg.Phone);
         //}
-      }
+      }*/
     }
   }
   if(buff2 != "")
@@ -1319,7 +1367,14 @@ void AlarmDisarm(){
     }
 }
 
-SmsMessage extractSms(String buff){
+SmsMessage extractSms(String buff)  //+CMGR: <stat>,<fo>,<ct>[,<pid>[,<mn>][,<da>][,<toda>],<length><CR><LF><cdata>]
+{
+  //AT+CMGR=46
+  //+CMGR: "REC UNREAD","+543414681709","","22/06/26,19:36:11-12"
+  //mensaje
+  //
+  //OK
+
   //unsigned int index;
   uint8_t i;
   SmsMessage smsmsg;
@@ -1336,7 +1391,10 @@ SmsMessage extractSms(String buff){
   buff.trim();
   
   i = buff.indexOf("\n\r");
-  buff = buff.substring(0, i);
+  if (i>-1)
+    buff = buff.substring(0, i);
+  else
+    buff = buff.substring(0);
   buff.trim();
   buff.toLowerCase();
   smsmsg.Message = buff;
@@ -1459,7 +1517,7 @@ void SmsReponse(String text, String phone, bool forced){
     sim800.write(26);
     sim800.println();
     sim800.flush();
-    DelayYield(5000);    //because if other AT command is sent, will be ignored for a while.
+    Sim800_checkResponse(5000); //DelayYield(5000);    //because if other AT command is sent, will be ignored for a while.
   }
 }
 
