@@ -866,7 +866,7 @@ bool Sim800_WriteCommand(String atcmd)  // atcmd="AT+<x>=<…>" Sets the user-de
 
 String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>?" or "AT<x><n>" or "AT&<x><n>" and response "+<cmd>: <...>" or "<...>" Returns the currently set value of the parameter or parameters.
 {
-  String cmd="";
+  String cmd;
   unsigned long t;
   int index, index2;
   String ans, line, rta;
@@ -880,6 +880,7 @@ String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>
     sim800.flush();
     
     //Extract command:
+    cmd = "";
     if (atcmd.substring(0,3) == "AT+"){
       index = atcmd.indexOf("?");
       index2 = atcmd.indexOf("=");
@@ -919,7 +920,7 @@ String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>
             {
               index = line.indexOf(":");
               if(index > -1)
-                rta = atcmd.substring(index+1);
+                rta = line.substring(index+1);
             }
             rta.trim();
 
@@ -1046,8 +1047,8 @@ String Sim800_NextLine(String &buff)  //Extracts the next line form the Sim800 a
   while (next == "" && buff.length() > 0){
     index = buff.indexOf("\r");
     if(index > -1 && index < int(buff.length()-1)){  //there are remaining lines
-      next = buff.substring(index+2);
-      buff.remove(index);
+      next = buff.substring(0, index);
+      buff.remove(0, index);
       buff.trim();
     } else {
       next = buff;
@@ -1055,7 +1056,7 @@ String Sim800_NextLine(String &buff)  //Extracts the next line form the Sim800 a
     }
     next.trim();
   }
-  DEBUG_PRINTLN("From SIM800L next line: -" + next + "-");
+  DEBUG_PRINTLN("From SIM800L line: -" + next + "-");
   return next;
 }
 
@@ -1517,7 +1518,8 @@ void SmsReponse(String text, String phone, bool forced){
     sim800.write(26);
     sim800.println();
     sim800.flush();
-    Sim800_checkResponse(5000); //DelayYield(5000);    //because if other AT command is sent, will be ignored for a while.
+    //Sim800_checkResponse(5000);
+    DelayYield(5000);    //because if other AT command is sent, will be ignored for a while.
   }
 }
 
