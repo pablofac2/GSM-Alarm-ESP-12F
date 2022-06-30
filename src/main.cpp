@@ -1116,6 +1116,7 @@ bool Sim800_Connect(){
     //sim800.flush();
     //delay(120);
   }
+  Sim800_WriteCommand(F("AT+CNETLIGHT=0"));   //turn off net light led
   return true;
 }
 
