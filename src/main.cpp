@@ -223,6 +223,7 @@ bool ReadyToSleep = false;
 bool SIM_RINGING = false;       //SIM800 RI pin is active
 bool SIM_ONCALL = false;        //SIM800 is on call
 bool SIM_SLEEPING = false;      //SIM800 sleeping
+uint32_t SIM_ONCALLMILLIS;
 //bool SIM_INACTIVE = false;       //SIM800 not responding AT commands
 //bool SIM_ERROR = false;       //SIM800 not responding AT commands
 //bool SIM_CALLING = false;     //SIM800 in a call
@@ -231,7 +232,7 @@ bool SIM_SLEEPING = false;      //SIM800 sleeping
 static String Sim800_Buffer_Array[50];
 static int Sim800_Buffer_Count = 0;
 String DTMFs = "";
-bool waitingCPAS = false;
+//bool waitingCPAS = false;
 bool sleepTime = false;
 bool ReadyToArm = false;
 
@@ -955,6 +956,8 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
 {
   if(line == "RING"){
     SIM_RINGING = true;
+    SIM_ONCALL = true;
+    SIM_ONCALLMILLIS = RTCmillis();
     DTMFs="";
     DEBUG_PRINTLN("From Sim800: RINGING");
   }
@@ -1530,14 +1533,15 @@ void CallReponse(String text, String phone, bool forced){
     ((alarmConfig.Caller.CALLOnAlarm && ESP_FIRED) || forced) &&
     phone.length()>10)
   {
-    DEBUG_PRINTLN("ATD" + phone + ";");
-    sim800.println("ATD" + phone + ";"); //make call  println evita tener q poner \r al final  //Your phone number don't forget to include your country code, example +212123456789"
-    sim800.flush();
-    //DelayYield(20000);
-    Sim800_ManageCommunicationOnCall(20000); //in case the call is attended and some DTMF sent
-    sim800.println(F("ATH")); //hang up
-    sim800.flush();
-    DEBUG_PRINTLN(F("Call ended"));
+    Sim800_WriteCommand("ATD" + phone + ";");//make call  println evita tener q poner \r al final  //Your phone number don't forget to include your country code, example +212123456789"
+    //DEBUG_PRINTLN("ATD" + phone + ";");
+    //sim800.println("ATD" + phone + ";"); 
+    //sim800.flush();
+    Sim800_ManageCommunicationOnCall(20000); //in case the call is attended and some DTMF sent  //DelayYield(20000);
+    Sim800_WriteCommand(F("ATH"));//hang up
+    //sim800.println(F("ATH")); 
+    //sim800.flush();
+    //DEBUG_PRINTLN(F("Call ended"));
   }
 }
 
@@ -1645,8 +1649,20 @@ bool Read_Zones_State(){
     }
   }
   s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
-  if (alarmConfig.Caller.GSMEnabled && s == LOW){
-    SIM_RINGING = true;                                 //Receibing call or sms
+  if (alarmConfig.Caller.GSMEnabled){
+    if (!SIM_RINGING && s == LOW){
+      SIM_RINGING = true;
+      SIM_ONCALL = true;
+      SIM_ONCALLMILLIS = RTCmillis();
+      DTMFs="";
+      DEBUG_PRINTLN("From Sim800 RI PIN: RINGING");
+    }
+    else if (SIM_RINGING && s == HIGH) {
+      SIM_RINGING = false;
+      SIM_ONCALL = false;
+      DTMFs="";
+      DEBUG_PRINTLN("From Sim800 RI PIN: CALL ENDED");
+    }
   } 
   return zonesOk;
 }
