@@ -103,10 +103,12 @@ String HTMLConfig = "";
 #define OK 11
 #define SIM800_TIMEOUT 500  //min time tbwn AT commands: 120ms (for AT command answer timeout)
 #define SIM800_REPS 3 //number of AT command repetitions when ERROR or timout instead of OK
-
+#define SIM800_MAXCALLMILLIS 300000 //max call duration: 5minutes
 #define SIM800baudrate 9600   //too fast generates issues when receibing SMSs, buffer is overloaded and the SMS AT arrives incomplete
 #define DEBUGbaudrate 115200
-#define SLEEP_TIME_MS 1000 //mili seconds of light sleep periods between input readings
+#define SLEEP_TIME_MS 10000 //mili seconds of light sleep periods between input readings
+
+#define WIFI_DURATION_MS 60000 // 300000 //Wifi setup duration: 5minutes
 
 #define SIZEOF_NAME 10    //util characters (witout termination char)
 #define SIZEOF_PHONE 15   //util characters (witout termination char)
@@ -182,7 +184,7 @@ esp8266::polledTimeout::oneShotMs altDelay(blinkDelay);  // tight loop to simula
 esp8266::polledTimeout::oneShotMs wifiTimeout(timeout);  // 30 second timeout on WiFi connection
 // use fully qualified type and avoid importing all ::esp8266 namespace to the global namespace
 */
-unsigned long startT;
+unsigned long WIFI_TOMEOUT_MILLIS = 0;
 //const String PHONE = "+543414681709";
 //String smsStatus,senderNumber,receivedDate,msg;
 struct SmsMessage {
@@ -216,14 +218,16 @@ uint32_t ESP_FIREDELAY_MILLIS; //Alarm fired delay millis start
 bool ESP_FIRED = false;     //Alarm fired (siren activated)
 uint32_t ESP_FIRED_MILLIS;  //Alarm fired millis
 bool ESP_FIREDTOUT = false; //Alarm fired time out (siren silenced after max siren time)
+bool ESP_READYTOSLEEP = false;
 //uint8_t ESPStatus = ESP_WIFI;
-bool ReadyToSleep = false;
+//bool ReadyToSleep = false;
 
 //SIM800 status:
 bool SIM_RINGING = false;       //SIM800 RI pin is active
 bool SIM_ONCALL = false;        //SIM800 is on call
 bool SIM_SLEEPING = false;      //SIM800 sleeping
 uint32_t SIM_ONCALLMILLIS;
+bool SIM_WAITINGDTMF_ADA = false;
 //bool SIM_INACTIVE = false;       //SIM800 not responding AT commands
 //bool SIM_ERROR = false;       //SIM800 not responding AT commands
 //bool SIM_CALLING = false;     //SIM800 in a call
@@ -317,6 +321,9 @@ void CallReponse(String text, String phone, bool forced);
 void AlarmFiredSmsAdvise();
 void AlarmFiredCallAdvise();
 void AlarmDisarm();
+void AlarmFire();
+void AlarmArm();
+void AlarmReArm();
 void Sim800_ManageCommunication();
 void Sim800_ManageCommunicationOnCall(unsigned long timeout);
 String AlarmStatusText();
@@ -391,7 +398,7 @@ void setup() {
   msg="";*/
   Sim800_Connect();
   DEBUG_PRINTLN(F("**** Conectado ****"));
-  startT = millis();
+  //startT = millis();
 
   //Initialize EEPROM and read config
   DEBUG_PRINTLN(F("**** Reading EEPROM ****"));
@@ -442,12 +449,25 @@ void loop() {
   if (!ESP_FIRED)
     espFiredPrev = false;
 
+  //If too much time in a call, hang up
+  if (SIM_ONCALL && (RTCmillis() - SIM_ONCALLMILLIS) > SIM800_MAXCALLMILLIS){
+    Sim800_WriteCommand(F("ATH"));//hang up
+  }
+
+  //Auto Alarm Arm
+  if (ESP_FIRED && (RTCmillis() - ESP_FIRED_MILLIS > alarmConfig.AutoArmDelaySecs)){
+    if (ReadyToArm)
+      AlarmReArm();
+  }
+
   //Going to sleep
   if (1 == 2 && !SIM_ONCALL && !SIM_RINGING && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){
     if (!SIM_SLEEPING){
       Sim800_enterSleepMode();
       DelayYield(500);
     }
+    if (!ESP_READYTOSLEEP)
+      Sleep_Prepare();
     Sleep_Forced();
   }
 
@@ -683,12 +703,15 @@ void ConfigWifi(){
   DEBUG_PRINTLN(WiFi.localIP());
 
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){  //Route for root / web page
+    WIFI_TOMEOUT_MILLIS = RTCmillis();
     request->send_P(200, "text/html", index_html, processor);
   });
 
   server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request){  //Config page /config
-    if (HTMLAdminPass == String(alarmConfig.AdminPass))
+    if (HTMLAdminPass == String(alarmConfig.AdminPass)){
+      WIFI_TOMEOUT_MILLIS = RTCmillis();
       request->send_P(200, "text/html", config_html, processor);
+    }
   });
 
   server.on("/pass", HTTP_GET, [](AsyncWebServerRequest *request){ //Send a GET request to <ESP_IP>/pass?HTMLAdminPass=<inputMessage>
@@ -705,6 +728,7 @@ void ConfigWifi(){
 
   server.on("/get", HTTP_GET, [](AsyncWebServerRequest *request){ //Send a GET request to <ESP_IP>/get?input1=<inputMessage>
     if (request->hasParam("HTMLConfig") && HTMLAdminPass == String(alarmConfig.AdminPass)) {
+      WIFI_TOMEOUT_MILLIS = RTCmillis();
       HTMLConfig = request->getParam("HTMLConfig")->value();
       DEBUG_PRINTLN(F("HTMLConfig = ") + HTMLConfig);
       ConfigStringCopy(alarmConfig, HTMLConfig, false);    //Parse String to alarmConfig
@@ -959,12 +983,14 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
     SIM_ONCALL = true;
     SIM_ONCALLMILLIS = RTCmillis();
     DTMFs="";
+    SIM_WAITINGDTMF_ADA = false;
     DEBUG_PRINTLN("From Sim800: RINGING");
   }
   else if(line == "NO CARRIER"){
     SIM_RINGING = false;
     SIM_ONCALL = false;
     DTMFs="";
+    SIM_WAITINGDTMF_ADA = false;
     DEBUG_PRINTLN("From Sim800: CALL ENDED");
   }
   else
@@ -980,25 +1006,48 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
 
         if(cmd == "+DTMF")
         {
-          ESP8266SAM *sam = new ESP8266SAM;
-          String text;
-          text = "Alarm is Armed " + String(ESP_ARMED?"1":"0");
-          text += ", Fired " + String(ESP_FIRED?"1":"0");
-          text += ", Battery " + String(readVoltage());
-          sam->Say(out, text.c_str()); //"Alarm is Armed! ALARM IS ARMED! alarm is armed"
-          delay(500);
-          delete sam;
-
-          //acumular dtmf
-          DTMFs += rta;
-          DEBUG_PRINTLN("DTMF DETECTADO: " + rta);
-          DEBUG_PRINTLN("DTMFs: " + DTMFs);
+          DEBUG_PRINTLN("From Sim800 DTMF detected: " + rta);
+          Sim800_WriteCommand("AT+CLDTMF=10,\"" + rta + "\"");  //DTMF echo due to really bad reception
           if(DTMFs==String(alarmConfig.OpPass)){
-            AlarmDisarm();
-            sim800.println(F("AT+CLDTMF=10,\"1,5,1\""));
-            sim800.flush();
-            delay(120);
-            DTMFs="";
+            if (!SIM_WAITINGDTMF_ADA){
+              SIM_WAITINGDTMF_ADA = true;
+              ESP8266SAM *sam = new ESP8266SAM;
+              String text;
+              text = "Alarm is Armed " + String(ESP_ARMED?"1":"0");
+              text += ", Fired " + String(ESP_FIRED?"1":"0");
+              text += ", Battery " + String(readVoltage());
+              sam->Say(out, text.c_str()); //"Alarm is Armed! ALARM IS ARMED! alarm is armed"
+              delay(500);
+              sam->Say(out, "Type 1 to Arm");
+              delay(500);
+              sam->Say(out, "Type 2 to DisArm");
+              delete sam;
+            }
+            else{
+              if (rta == "1"){  //ARM
+                AlarmArm();
+                ESP8266SAM *sam = new ESP8266SAM;
+                sam->Say(out, "ALARM IS ARMED");
+                delay(500);
+                sam->Say(out, "ALARM IS ARMED");
+                delete sam;
+                //sim800.println(F("AT+CLDTMF=10,\"1,5,1\""));
+                //sim800.flush();
+                //delay(120);
+              }
+              else if (rta == "2"){             //DISARM
+                AlarmDisarm();
+                ESP8266SAM *sam = new ESP8266SAM;
+                sam->Say(out, "ALARM IS DISARMED");
+                delay(500);
+                sam->Say(out, "ALARM IS DISARMED");
+                delete sam;
+              }
+            }
+          }
+          else{
+            DTMFs += rta; //accumulate DTMSs for password
+            DEBUG_PRINTLN("DTMFs Inserted: " + DTMFs);
           }
         }
         else if(cmd == "+CMTI") //new SMS arrived
@@ -1362,14 +1411,30 @@ void parseDataOLD(String buff){
 }
 
 void AlarmDisarm(){
-    ESP_ARMED = false;
-    ESP_FIRED = false;
-    ESP_FIREDELAY = false;
-    ESP_FIREDTOUT = false;
-    for(int i=0; i < SIZEOF_ZONE; i++){
-      ZONE_COUNT[i] = 0;
-      ZONE_TRIGGERED[i] = false;
-    }
+  ESP_ARMED = false;
+  ESP_FIRED = false;
+  ESP_FIREDELAY = false;
+  ESP_FIREDTOUT = false;
+  for(int i=0; i < SIZEOF_ZONE; i++){
+    ZONE_COUNT[i] = 0;
+    ZONE_TRIGGERED[i] = false;
+  }
+}
+
+void AlarmFire(){
+  ESP_FIRED = true;
+  ESP_FIRED_MILLIS = RTCmillis();
+}
+
+void AlarmArm(){
+  ESP_ARMED = true;
+}
+
+void AlarmReArm(){
+  ESP_ARMED = true;
+  ESP_FIRED = false;
+  ESP_FIREDELAY = false;
+  ESP_FIREDTOUT = false;
 }
 
 SmsMessage extractSms(String buff)  //+CMGR: <stat>,<fo>,<ct>[,<pid>[,<mn>][,<da>][,<toda>],<length><CR><LF><cdata>]
@@ -1435,7 +1500,7 @@ void doAction(String msg, String phone){
   }
   else if(msg == "a"){
     if (ReadyToArm){
-      ESP_ARMED = true;
+      AlarmArm();
       SmsReponse("Alarm Armed", phone, false);
     }
     else {
@@ -1559,7 +1624,7 @@ void Sleep_Prepare(){
   }
   wifi_enable_gpio_wakeup(GPIO_ID_PIN(SIM800_RING_RESET_PIN), GPIO_PIN_INTR_LOLEVEL); //Sending this GPIOs to ground will wake the ESP.
   wifi_fpm_set_wakeup_cb(WakeUpCallBackFunction);	//This API can only be called when force sleep function is enabled, after calling wifi_fpm_open. Will be called after system wakes up only if the force sleep time out (wifi_fpm_do_sleep and the parameter is not 0xFFFFFFF)
-  ReadyToSleep = true;
+  ESP_READYTOSLEEP = true;
 }
 
 void Sleep_Forced() {
@@ -1616,8 +1681,7 @@ bool Read_Zones_State(){
         if (ESP_ARMED && !ESP_FIRED){
           if (ESP_FIREDELAY){                                           //Was previously triggered a delayed zone
             if ((RTCmillis() - ESP_FIREDELAY_MILLIS)/1000 > alarmConfig.Zone[i].DelayOnSecs){
-              ESP_FIRED = true;
-              ESP_FIRED_MILLIS = RTCmillis();
+              AlarmFire();
             }
           } else if (alarmConfig.Zone[i].FirstAdviseDurationSecs > 0){  //Zone with first advise. Needs to be triggering at least FirstAdviseDurationSecs, after that the alarm will be fired
             if (!ESP_FIRSTDELAY){                   //first advise trigger
@@ -1626,15 +1690,13 @@ bool Read_Zones_State(){
             } else if ((RTCmillis() - ESP_FIRSTDELAY_MILLIS)/1000 > alarmConfig.Zone[i].FirstAdviseResetSecs){
               ESP_FIRSTDELAY = false;               //first advise expired
             } else if ((RTCmillis() - ESP_FIRSTDELAY_MILLIS)/1000 > alarmConfig.Zone[i].FirstAdviseDurationSecs){
-              ESP_FIRED = true;                     //first advise fires alarm
-              ESP_FIRED_MILLIS = RTCmillis();
+              AlarmFire();                     //first advise fires alarm
             }
           } else if (alarmConfig.Zone[i].DelayOnSecs > 0){              //Zone with delay on
             ESP_FIREDELAY = true;
             ESP_FIREDELAY_MILLIS = RTCmillis();
           } else {                                                      //No delay on
-            ESP_FIRED = true;
-            ESP_FIRED_MILLIS = RTCmillis();
+            AlarmFire();
           }
         }
         if (ESP_ARMED && ZONE_STATE[i] != s){       //Zone had a new trigger -> register it
@@ -1655,12 +1717,14 @@ bool Read_Zones_State(){
       SIM_ONCALL = true;
       SIM_ONCALLMILLIS = RTCmillis();
       DTMFs="";
+      SIM_WAITINGDTMF_ADA = false;
       DEBUG_PRINTLN("From Sim800 RI PIN: RINGING");
     }
     else if (SIM_RINGING && s == HIGH) {
       SIM_RINGING = false;
       SIM_ONCALL = false;
       DTMFs="";
+      SIM_WAITINGDTMF_ADA = false;
       DEBUG_PRINTLN("From Sim800 RI PIN: CALL ENDED");
     }
   } 
