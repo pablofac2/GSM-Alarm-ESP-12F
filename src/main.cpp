@@ -109,6 +109,15 @@ String HTMLConfig = "";
 #define SLEEP_TIME_MS 100 //mili seconds of light sleep periods between input readings
 
 #define WIFI_DURATION_MS 120000 // 300000 //Wifi setup duration: 5minutes
+#define ESP_BLINKINGON_MS 500    //blinking led on time
+#define ESP_BLINKINGOFF_MS 1000  //blinking led off time
+#define ESP_BLINKINGONFIRED_MS 200    //blinking led on time
+#define ESP_BLINKINGOFFFIRED_MS 500  //blinking led off time
+
+#define ESP_VOLTAGE_MIN 12      //minimum voltage baterry to trigger the alarm
+#define ESP_VOLTAGE_RESET 12.5  //voltage baterry to reset the battery alarm
+#define ESP_VOLTAGE_MS 30000  //frequency to read the battery voltage
+unsigned long ESP_VOLTAGE_READMILLIS = 0; //last voltage read millis
 
 #define SIZEOF_NAME 10    //util characters (witout termination char)
 #define SIZEOF_PHONE 15   //util characters (witout termination char)
@@ -184,6 +193,7 @@ esp8266::polledTimeout::oneShotMs altDelay(blinkDelay);  // tight loop to simula
 esp8266::polledTimeout::oneShotMs wifiTimeout(timeout);  // 30 second timeout on WiFi connection
 // use fully qualified type and avoid importing all ::esp8266 namespace to the global namespace
 */
+
 unsigned long WIFI_TOMEOUT_MILLIS = 0;
 //const String PHONE = "+543414681709";
 //String smsStatus,senderNumber,receivedDate,msg;
@@ -334,7 +344,7 @@ void Sim800_HardReset();
 void Sim800_RemoveEcho(String &buff);
 String Sim800_NextLine(String &buff);
 bool Sim800_UnsolicitedResultCode(String line);
-
+void BlinkLED();
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -431,6 +441,7 @@ void setup() {
 
 void loop() {
   static bool espFiredPrev = false;
+  static bool espVoltageOk = true;
 
   AlarmLoop();
 
@@ -448,6 +459,18 @@ void loop() {
   }
   if (!ESP_FIRED)
     espFiredPrev = false;
+
+  //Check battery voltage
+  if (espVoltageOk && readVoltage() < ESP_VOLTAGE_MIN){
+    espVoltageOk = false;
+    AlarmFiredSmsAdvise();
+    AlarmFiredCallAdvise();
+  }
+  else if (!espVoltageOk && readVoltage() > ESP_VOLTAGE_RESET){
+    espVoltageOk = true;
+  }
+
+  //BlinkLED();
 
   //If too much time in a call, hang up
   if (SIM_ONCALL && (RTCmillis() - SIM_ONCALLMILLIS) > SIM800_MAXCALLMILLIS){
@@ -524,6 +547,29 @@ void AlarmLoop()
     }
     else{
       digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+    }
+  }
+}
+
+void BlinkLED(){
+  static uint32_t lastChangeMillis; //last led change millis
+  static bool ledState = false;
+  uint32_t ms = RTCmillis();
+
+  if (ledState)
+  {
+    if (ms - lastChangeMillis > (ESP_FIRED? ESP_BLINKINGONFIRED_MS : ESP_BLINKINGON_MS)){
+      ledState = false;
+      lastChangeMillis = ms;
+      DEBUG_PRINTLN(F("LED OFF"));
+    }
+  }
+  else
+  {
+    if (ms - lastChangeMillis > (ESP_FIRED? ESP_BLINKINGOFFFIRED_MS : ESP_BLINKINGOFF_MS)){
+      ledState = true;
+      lastChangeMillis = ms;      
+      DEBUG_PRINTLN(F("LED ON"));
     }
   }
 }
@@ -1626,12 +1672,12 @@ void Sleep_Prepare(){
   wifi_set_opmode(NULL_MODE);							 	  //set WiFi	mode	to	null	mode.
   wifi_fpm_set_sleep_type(LIGHT_SLEEP_T);		  //This API can only be called before wifi_fpm_open 	light	sleep
   wifi_fpm_open();													  //Enable force sleep function
-  for (int i = 0; i < SIZEOF_ZONE; i++){       //If TriggerNC = true, zones must be at ground, opening ground loop wakes the ESP and fires the alarm.
+ /* for (int i = 0; i < SIZEOF_ZONE; i++){       //If TriggerNC = true, zones must be at ground, opening ground loop wakes the ESP and fires the alarm.
     if (alarmConfig.Zone[i].Enabled){
       wifi_enable_gpio_wakeup(GPIO_ID_PIN(ZONE_PIN[i]), alarmConfig.Zone[i].TriggerNC ? GPIO_PIN_INTR_HILEVEL : GPIO_PIN_INTR_LOLEVEL);
     }
   }
-  wifi_enable_gpio_wakeup(GPIO_ID_PIN(SIM800_RING_RESET_PIN), GPIO_PIN_INTR_LOLEVEL); //Sending this GPIOs to ground will wake the ESP.
+  wifi_enable_gpio_wakeup(GPIO_ID_PIN(SIM800_RING_RESET_PIN), GPIO_PIN_INTR_LOLEVEL);*/ //Sending this GPIOs to ground will wake the ESP.
   wifi_fpm_set_wakeup_cb(WakeUpCallBackFunction);	//This API can only be called when force sleep function is enabled, after calling wifi_fpm_open. Will be called after system wakes up only if the force sleep time out (wifi_fpm_do_sleep and the parameter is not 0xFFFFFFF)
   ESP_READYTOSLEEP = true;
 }
@@ -1728,6 +1774,7 @@ bool Read_Zones_State(){
       DTMFs="";
       SIM_WAITINGDTMF_ADA = false;
       DEBUG_PRINTLN("From Sim800 RI PIN: RINGING");
+      delay(2000);  //BORRAR ****************************************
     }
     else if (SIM_RINGING && s == HIGH) {
       SIM_RINGING = false;
@@ -1735,6 +1782,7 @@ bool Read_Zones_State(){
       DTMFs="";
       SIM_WAITINGDTMF_ADA = false;
       DEBUG_PRINTLN("From Sim800 RI PIN: CALL ENDED");
+      delay(2000);  //BORRAR ****************************************
     }
   //} 
   return zonesOk;
