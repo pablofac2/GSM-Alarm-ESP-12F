@@ -208,7 +208,7 @@ const String _responseInfo[_responseInfoSize] =
 byte _checkResponse(uint16_t timeout);
 
 //ESP8266 Status:
-bool ESP_WIFI = false;      //Wifi enabled during start up (120 secs)
+bool ESP_WIFI = true;      //Wifi enabled during start up (120 secs)
 bool ESP_DISARMED = false;  //Alarm disarmed
 bool ESP_ARMED = false;     //Alarm armed
 bool ESP_FIRSTDELAY = false; //Alarm first delay (if zone triggers again, it will be fired)
@@ -460,8 +460,12 @@ void loop() {
       AlarmReArm();
   }
 
+  //Wifi configuration at startup preventing to sleep
+  if (ESP_WIFI && (RTCmillis() - WIFI_DURATION_MS) > 0)
+    ESP_WIFI = false;
+
   //Going to sleep
-  if (1 == 2 && !SIM_ONCALL && !SIM_RINGING && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){
+  if (!ESP_WIFI && !SIM_ONCALL && !SIM_RINGING && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){
     if (!SIM_SLEEPING){
       Sim800_enterSleepMode();
       DelayYield(500);
