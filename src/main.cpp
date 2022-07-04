@@ -229,6 +229,7 @@ bool ESP_FIRED = false;     //Alarm fired (siren activated)
 uint32_t ESP_FIRED_MILLIS;  //Alarm fired millis
 bool ESP_FIREDTOUT = false; //Alarm fired time out (siren silenced after max siren time)
 bool ESP_READYTOSLEEP = false;
+bool ESP_LOWBATTERY = false;
 //uint8_t ESPStatus = ESP_WIFI;
 //bool ReadyToSleep = false;
 
@@ -298,9 +299,8 @@ bool Sim800_disableSleep();
 String Sim800_Wait_Cmd(uint16_t timeout, String cmd);
 String Sim800_AnswerString(uint16_t timeout);
 byte Sim800_checkResponse(unsigned long timeout);
-bool Sim800_setFullMode();
+//bool Sim800_setFullMode();
 void parseData(String buff);
-void parseDataOLD(String buff);
 SmsMessage extractSms(String buff);
 void doAction(String msg, String phone);
 void DelayYield(unsigned int TiempoMillis);
@@ -441,7 +441,7 @@ void setup() {
 
 void loop() {
   static bool espFiredPrev = false;
-  static bool espVoltageOk = true;
+  //static bool espVoltageOk = true;
 
   AlarmLoop();
 
@@ -461,13 +461,14 @@ void loop() {
     espFiredPrev = false;
 
   //Check battery voltage
-  if (espVoltageOk && readVoltage() < ESP_VOLTAGE_MIN){
-    espVoltageOk = false;
+  if (!ESP_LOWBATTERY && readVoltage() < ESP_VOLTAGE_MIN){
+    DEBUG_PRINTLN(F("Low battery detected, calling and texting..."));
+    ESP_LOWBATTERY = true;
     AlarmFiredSmsAdvise();
     AlarmFiredCallAdvise();
   }
-  else if (!espVoltageOk && readVoltage() > ESP_VOLTAGE_RESET){
-    espVoltageOk = true;
+  else if (ESP_LOWBATTERY && readVoltage() > ESP_VOLTAGE_RESET){
+    ESP_LOWBATTERY = false;
   }
 
   //BlinkLED();
@@ -537,7 +538,7 @@ void AlarmLoop()
 {
   //***************test if it was read too recently, skip this read ******
   //read inputs:
-  DEBUG_PRINT(F("."));
+  //DEBUG_PRINT(F("."));
   ReadyToArm = Read_Zones_State();
 
   //write outputs:
@@ -1064,6 +1065,7 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
           if(DTMFs==String(alarmConfig.OpPass)){
             if (!SIM_WAITINGDTMF_ADA){
               SIM_WAITINGDTMF_ADA = true;
+              DEBUG_PRINTLN(F("Awaiting Arm / Disarm command from DTMF"));
               ESP8266SAM *sam = new ESP8266SAM;
               String text;
               text = "Alarm is Armed " + String(ESP_ARMED?"1":"0");
@@ -1231,8 +1233,14 @@ bool Sim800_enterSleepMode(){
   //sim800.println(F("AT+CPAS")); // activity of phone: 0 Ready, 2 Unknown, 3 Ringing, 4 Call in progress
   if(ans == "3" || ans == "4"){  //Ringing or in call => wait to sleep
     DEBUG_PRINTLN("SIM800L sleeping FAILED, it is bussy on call or ringing");
+    if (ans=="3") SIM_RINGING = true;
+    if (ans=="4") SIM_ONCALL = true;
     return false; 
   }
+  SIM_RINGING = false;
+  SIM_ONCALL = false;
+  DTMFs="";
+  SIM_WAITINGDTMF_ADA = false;
   //sim800.println(F("AT+CSCLK=2")); // enable automatic sleep
   //if(Sim800_checkResponse(5000) == OK){
   if (Sim800_WriteCommand(F("AT+CSCLK=2"))){
@@ -1323,146 +1331,6 @@ void parseData(String buff)
     line = Sim800_NextLine(buff);
     Sim800_UnsolicitedResultCode(line);
   }
-}
-
-void parseDataOLD(String buff){
-  //SIM800L answer could be "[AT command ECHO]\r[anwser]"
-  DEBUG_PRINTLN("From SIM800L: -" + buff + "-");
-
-  String buff2="";
-  int index;
-  
-  Sim800_RemoveEcho(buff);
-  /*//Remove sent "AT Command ECHO":
-  buff.trim();
-  buff.toUpperCase();
-  while(buff.substring(0,2) == "AT"){ //por si hay varios comandos encadenados que ese enviaron juntos
-    index = buff.indexOf("\r");
-    if(index>-1){
-      buff.remove(0, index+2);
-    } else {
-      break;
-    }
-    buff.trim();
-    //DEBUG_PRINTLN("respuesta sin comando enviado: -" + buff + "-");
-  }*/
-
-  buff2 = buff;
-  buff = Sim800_NextLine(buff2);
-  /*index = buff.indexOf("\r");
-  if(index > -1 && index < int(buff.length()-1)){  //hay más de 1 repuesta, la divido para analizar luego el final
-    buff2 = buff.substring(index+2);
-    buff2.trim();
-    //DEBUG_PRINTLN("queda para después: -" + buff2 + "-");
-    buff.remove(index);
-    buff.trim();
-  }
-  //DEBUG_PRINTLN("queda para ahora: -" + buff + "-");
-  //////////////////////////////////////////////////*/
-  if(buff == "RING"){
-    SIM_RINGING = true;
-    //resetear dtmf
-    DTMFs="";
-    DEBUG_PRINTLN("RING DETECTADO");
-  }
-  else if(buff == "NO CARRIER"){
-    SIM_RINGING = false;
-    SIM_ONCALL = false;
-    DTMFs="";
-    //resetesar dtmf
-    DEBUG_PRINTLN("FIN LLAMADA DETECTADO");
-  }
-  else if(buff == "OK"){
-    DEBUG_PRINTLN("OK DETECTADO");
-
-  }
-  else{
-    index = buff.indexOf(":");
-    if(index>0){                                  //There's a command response
-      /*String cmd = buff.substring(0, index);
-      DEBUG_PRINTLN("Comando: -" + cmd + "-");
-      //DEBUG_PRINTLN("Buffer restante: -" + buff + "-");
-      cmd.trim();
-      buff.remove(0, index+2);
-      buff.trim();*/
-      /*
-      //DEBUG_PRINTLN("Buffer restante sin comando: -" + buff + "-");
-      index = buff.indexOf("\r");
-      //DEBUG_PRINTLN("index: -" + String(index) + "-");
-      if(index>-1)
-        buff.remove(index);
-      buff.trim();*/
-      /*DEBUG_PRINTLN("Valor: -" + buff + "-");
-
-      if(cmd == "+IPR"){
-        String sim800brstr = String(SIM800baudrate);
-        sim800brstr.trim();
-        if(buff != sim800brstr){
-          DEBUG_PRINTLN("Ajustando velocidad Serial SIM800 por defecto en " + sim800brstr);
-          sim800.println(F("AT+IPR=") + sim800brstr); //115200
-          sim800.flush();
-          delay(120);
-          sim800.println(F("AT&W"));
-          sim800.flush();
-          delay(120);
-        }
-      }
-      else if(cmd == "+CPAS"){
-        if(buff != "3" && buff != "4"){  //Ringing or in call => wait to sleep
-          sleepTime = true;
-          DEBUG_PRINTLN("No estoy Sonando ni en llamada, ir a dormir");
-        }
-      }*/
-      /*else if(cmd == "+DTMF"){
-        ESP8266SAM *sam = new ESP8266SAM;
-        String text;
-        text = "Alarm is Armed " + String(ESP_ARMED?"1":"0");
-        text += ", Fired " + String(ESP_FIRED?"1":"0");
-        text += ", Battery " + String(readVoltage());
-        sam->Say(out, text.c_str()); //"Alarm is Armed! ALARM IS ARMED! alarm is armed"
-        delay(500);
-        delete sam;
-
-
-        //acumular dtmf
-        DTMFs += buff;
-        DEBUG_PRINTLN("DTMF DETECTADO: " + buff);
-        DEBUG_PRINTLN("DTMFs: " + DTMFs);
-        if(DTMFs==String(alarmConfig.OpPass)){
-          AlarmDisarm();
-          sim800.println(F("AT+CLDTMF=10,\"1,5,1\""));
-          sim800.flush();
-          delay(120);
-          DTMFs="";
-        }
-      }
-      else if(cmd == "+CMTI"){
-        //get newly arrived memory location and store it in temp
-        index = buff.indexOf(",");
-        String temp = buff.substring(index+1, buff.length()); 
-        temp = "AT+CMGR=" + temp; //+ "\r"; 
-        //get the message stored at memory location "temp"
-        DEBUG_PRINTLN("Pidiendo mensaje: " + temp);
-        sim800.println(temp);
-      }
-      else if(cmd == "+CMGR"){
-        SmsMessage smsmsg = extractSms(buff + "\n\r" + buff2);  //en buff2 está el mensaje
-
-        index = buff2.indexOf("\r");  //saco el mensaje de buff2 y veo si quedó algo más:
-        if(index > -1 && index < int(buff2.length()-2)){  //hay más de 1 repuesta, la divido para analizar luego el final
-          buff2.remove(0,index+2);
-          DEBUG_PRINTLN("queda para después: -" + buff2 + "-");
-        } else {
-          buff2 = "";
-        }
-        //if(senderNumber == PHONE){
-          doAction(smsmsg.Message, smsmsg.Phone);
-        //}
-      }*/
-    }
-  }
-  if(buff2 != "")
-    parseData(buff2);
 }
 
 void AlarmDisarm(){
@@ -1619,7 +1487,7 @@ void SmsReponse(String text, String phone, bool forced){
   DEBUG_PRINTLN(text);
   //if forced = true, the sms will be sent even if it is not configured
   if (alarmConfig.Caller.GSMEnabled &&
-    (alarmConfig.Caller.SMSResponse || forced || (alarmConfig.Caller.SMSOnAlarm && ESP_FIRED) ) &&
+    (alarmConfig.Caller.SMSResponse || forced || (alarmConfig.Caller.SMSOnAlarm && (ESP_FIRED || ESP_LOWBATTERY)) ) &&
     phone.length()>10)
   {
     DEBUG_PRINTLN("TO SIM800: AT+CMGS=\"" + phone + "\"\r" + text + (char)26);
@@ -1650,7 +1518,7 @@ void SmsReponse(String text, String phone, bool forced){
 void CallReponse(String text, String phone, bool forced){
   DEBUG_PRINTLN(text);
   if (alarmConfig.Caller.GSMEnabled &&
-    ((alarmConfig.Caller.CALLOnAlarm && ESP_FIRED) || forced) &&
+    ((alarmConfig.Caller.CALLOnAlarm && (ESP_FIRED || ESP_LOWBATTERY)) || forced) &&
     phone.length()>10)
   {
     Sim800_WriteCommand("ATD" + phone + ";");//make call  println evita tener q poner \r al final  //Your phone number don't forget to include your country code, example +212123456789"
@@ -1766,25 +1634,25 @@ bool Read_Zones_State(){
     }
   }
   s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
-  //if (alarmConfig.Caller.GSMEnabled){
+  if (alarmConfig.Caller.GSMEnabled){
     if (!SIM_RINGING && s == LOW){
       SIM_RINGING = true;
-      SIM_ONCALL = true;
-      SIM_ONCALLMILLIS = RTCmillis();
+      //SIM_ONCALL = true;
+      //SIM_ONCALLMILLIS = RTCmillis();
       DTMFs="";
       SIM_WAITINGDTMF_ADA = false;
       DEBUG_PRINTLN("From Sim800 RI PIN: RINGING");
-      delay(2000);  //BORRAR ****************************************
+      //delay(2000);  //BORRAR ****************************************
     }
     else if (SIM_RINGING && s == HIGH) {
       SIM_RINGING = false;
-      SIM_ONCALL = false;
-      DTMFs="";
-      SIM_WAITINGDTMF_ADA = false;
-      DEBUG_PRINTLN("From Sim800 RI PIN: CALL ENDED");
-      delay(2000);  //BORRAR ****************************************
+      //SIM_ONCALL = false;
+      //DTMFs="";
+      //SIM_WAITINGDTMF_ADA = false;
+      //DEBUG_PRINTLN("From Sim800 RI PIN: CALL ENDED");
+      //delay(2000);  //BORRAR ****************************************
     }
-  //} 
+  } 
   return zonesOk;
 }
 
