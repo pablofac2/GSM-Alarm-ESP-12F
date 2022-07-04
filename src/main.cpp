@@ -106,9 +106,9 @@ String HTMLConfig = "";
 #define SIM800_MAXCALLMILLIS 300000 //max call duration: 5minutes
 #define SIM800baudrate 9600   //too fast generates issues when receibing SMSs, buffer is overloaded and the SMS AT arrives incomplete
 #define DEBUGbaudrate 115200
-#define SLEEP_TIME_MS 10000 //mili seconds of light sleep periods between input readings
+#define SLEEP_TIME_MS 100 //mili seconds of light sleep periods between input readings
 
-#define WIFI_DURATION_MS 60000 // 300000 //Wifi setup duration: 5minutes
+#define WIFI_DURATION_MS 120000 // 300000 //Wifi setup duration: 5minutes
 
 #define SIZEOF_NAME 10    //util characters (witout termination char)
 #define SIZEOF_PHONE 15   //util characters (witout termination char)
@@ -461,8 +461,10 @@ void loop() {
   }
 
   //Wifi configuration at startup preventing to sleep
-  if (ESP_WIFI && (RTCmillis() - WIFI_DURATION_MS) > 0)
+  if (ESP_WIFI && (RTCmillis() > (unsigned int)WIFI_DURATION_MS)){
+    DEBUG_PRINTLN(F("Wifi Timout"));
     ESP_WIFI = false;
+  }
 
   //Going to sleep
   if (!ESP_WIFI && !SIM_ONCALL && !SIM_RINGING && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){
@@ -512,6 +514,7 @@ void AlarmLoop()
 {
   //***************test if it was read too recently, skip this read ******
   //read inputs:
+  DEBUG_PRINT(F("."));
   ReadyToArm = Read_Zones_State();
 
   //write outputs:
@@ -1188,6 +1191,7 @@ bool Sim800_enterSleepMode(){
   //if(Sim800_checkResponse(5000) == OK){
   if (Sim800_WriteCommand(F("AT+CSCLK=2"))){
     DEBUG_PRINTLN(F("SIM800L sleeping OK"));
+    SIM_SLEEPING = true;
     return true;
   } else {
     DEBUG_PRINTLN(F("SIM800L sleeping FAILED, hard reseting it"));
@@ -1205,6 +1209,7 @@ bool Sim800_disableSleep(){
   //if(Sim800_checkResponse(5000) == OK){
   if (Sim800_WriteCommand(F("AT+CSCLK=0"))){
     DEBUG_PRINTLN(F("SIM800L awake OK"));
+    SIM_SLEEPING = false;
     return true;
   } else {
     DEBUG_PRINTLN(F("SIM800L awake FAILED, hard reseting it"));
@@ -1715,7 +1720,7 @@ bool Read_Zones_State(){
     }
   }
   s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
-  if (alarmConfig.Caller.GSMEnabled){
+  //if (alarmConfig.Caller.GSMEnabled){
     if (!SIM_RINGING && s == LOW){
       SIM_RINGING = true;
       SIM_ONCALL = true;
@@ -1731,7 +1736,7 @@ bool Read_Zones_State(){
       SIM_WAITINGDTMF_ADA = false;
       DEBUG_PRINTLN("From Sim800 RI PIN: CALL ENDED");
     }
-  } 
+  //} 
   return zonesOk;
 }
 
