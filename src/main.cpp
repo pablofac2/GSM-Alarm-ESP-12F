@@ -476,6 +476,7 @@ void loop() {
   //If too much time in a call, hang up
   if (SIM_ONCALL && (RTCmillis() - SIM_ONCALLMILLIS) > SIM800_MAXCALLMILLIS){
     Sim800_WriteCommand(F("ATH"));//hang up
+    SIM_ONCALL = false;
   }
 
   //Auto Alarm Arm
@@ -809,7 +810,7 @@ String processor(const String& var){
 
 void Sim800_ManageCommunicationOnCall(unsigned long timeout){
   unsigned long t = millis();
-  SIM_ONCALL = true;
+  //SIM_ONCALL = true;
   while(millis()-t<timeout)
   {
     yield();
@@ -1525,8 +1526,10 @@ void CallReponse(String text, String phone, bool forced){
     //DEBUG_PRINTLN("ATD" + phone + ";");
     //sim800.println("ATD" + phone + ";"); 
     //sim800.flush();
+    SIM_ONCALL = true;
     Sim800_ManageCommunicationOnCall(20000); //in case the call is attended and some DTMF sent  //DelayYield(20000);
     Sim800_WriteCommand(F("ATH"));//hang up
+    SIM_ONCALL = false;
     //sim800.println(F("ATH")); 
     //sim800.flush();
     //DEBUG_PRINTLN(F("Call ended"));
