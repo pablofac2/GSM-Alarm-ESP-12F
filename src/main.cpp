@@ -256,9 +256,9 @@ bool ReadyToArm = false;
 
 #define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
 #ifdef DEBUG
-  #define DEBUG_PRINTLN(x)  Serial.println(x)
-  #define DEBUG_PRINT(x)  Serial.print(x)
-  #define DEBUG_FLUSH Serial.flush()
+  #define DEBUG_PRINTLN(x) // Serial.println(x)
+  #define DEBUG_PRINT(x)  //Serial.print(x)
+  #define DEBUG_FLUSH //Serial.flush()
   #include <SoftwareSerial.h>
   #define rxPin D1 //D1 = GPIO5  al tx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
   #define txPin D2 //D2 = GPIO4  al rx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
@@ -269,7 +269,7 @@ bool ReadyToArm = false;
   #define DEBUG_PRINT(x)
   #define DEBUG_FLUSH
   HardwareSerial sim800(UART0);
-  const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D1, D2, D5, D6, D7};
+  const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D5, D5, D5, D6, D7}; //{D1, D2, D5, D6, D7};
 #endif
 bool ZONE_DISABLED[SIZEOF_ZONE]; //if the zone has auto disable function enabled, this array will mask them.
 uint8_t ZONE_COUNT[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
@@ -329,6 +329,7 @@ uint32_t RTCmillis();
 void SmsReponse(String text, String phone, bool forced);
 void CallReponse(String text, String phone, bool forced);
 void AlarmFiredSmsAdvise();
+void BatteryLowSmsAdvise();
 void AlarmFiredCallAdvise();
 void AlarmDisarm();
 void AlarmFire();
@@ -464,7 +465,7 @@ void loop() {
   if (!ESP_LOWBATTERY && readVoltage() < ESP_VOLTAGE_MIN){
     DEBUG_PRINTLN(F("Low battery detected, calling and texting..."));
     ESP_LOWBATTERY = true;
-    AlarmFiredSmsAdvise();
+    BatteryLowSmsAdvise();
     AlarmFiredCallAdvise();
   }
   else if (ESP_LOWBATTERY && readVoltage() > ESP_VOLTAGE_RESET){
@@ -850,7 +851,17 @@ void Sim800_ManageCommunication(){
   #endif
 }
 
+void BatteryLowSmsAdvise(){
+  Sim800_disableSleep();
+  String msg="BATTERY LOW!";
+  msg += AlarmStatusText();
+  for (int i=0; i < SIZEOF_SMSPHONE; i++){
+    SmsReponse(msg, String(alarmConfig.Caller.SMSPhone[i].Number), true);
+  }
+}
+
 void AlarmFiredSmsAdvise(){
+  Sim800_disableSleep();
   String msg="ALARM FIRED!";
   msg += AlarmStatusText();
   for (int i=0; i < SIZEOF_SMSPHONE; i++){
@@ -889,6 +900,7 @@ String AlarmStatusText(){
 }
 
 void AlarmFiredCallAdvise(){
+  Sim800_disableSleep();
   String msg="ALARM FIRED! ALARM FIRED! ALARM FIRED!";
   msg += AlarmStatusText();
   for (int i=0; i < SIZEOF_CALLPHONE; i++){
@@ -1245,6 +1257,7 @@ bool Sim800_enterSleepMode(){
   //sim800.println(F("AT+CSCLK=2")); // enable automatic sleep
   //if(Sim800_checkResponse(5000) == OK){
   if (Sim800_WriteCommand(F("AT+CSCLK=2"))){
+    Sim800_WriteCommand(F("AT+CSCLK=2"));
     DEBUG_PRINTLN(F("SIM800L sleeping OK"));
     SIM_SLEEPING = true;
     return true;
@@ -1256,6 +1269,10 @@ bool Sim800_enterSleepMode(){
 }
 
 bool Sim800_disableSleep(){
+  if (!SIM_SLEEPING){
+    DEBUG_PRINTLN(F("SIM800L already awake"));
+    return true;
+  }
   sim800.println(F("AT"));    // first we need to send something random for as long as 100ms
   //sim800.flush();
   //DelayYield(120);                // this is between waking charaters and next AT commands  //120
@@ -1488,7 +1505,7 @@ void SmsReponse(String text, String phone, bool forced){
   DEBUG_PRINTLN(text);
   //if forced = true, the sms will be sent even if it is not configured
   if (alarmConfig.Caller.GSMEnabled &&
-    (alarmConfig.Caller.SMSResponse || forced || (alarmConfig.Caller.SMSOnAlarm && (ESP_FIRED || ESP_LOWBATTERY)) ) &&
+    (alarmConfig.Caller.SMSResponse || forced || (alarmConfig.Caller.SMSOnAlarm && ESP_FIRED) ) &&
     phone.length()>10)
   {
     DEBUG_PRINTLN("TO SIM800: AT+CMGS=\"" + phone + "\"\r" + text + (char)26);
