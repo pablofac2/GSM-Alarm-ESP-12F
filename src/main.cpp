@@ -104,6 +104,7 @@ String HTMLConfig = "";
 #define READY_TO_RECEIVE 10 // basically SMSGOOD means >
 #define OK 11
 #define SIM800_TIMEOUT 500  //min time tbwn AT commands: 120ms (for AT command answer timeout)
+#define SIM800_TIMEOUT_SMS 10000  //timeout sengins SMS messages
 #define SIM800_REPS 3 //number of AT command repetitions when ERROR or timout instead of OK
 #define SIM800_MAXCALLMILLIS 300000 //max call duration: 5minutes
 #define SIM800baudrate 9600   //too fast generates issues when receibing SMSs, buffer is overloaded and the SMS AT arrives incomplete
@@ -328,7 +329,7 @@ void InsertExtractLine(String description, String &text, char* ins_ext, bool ins
 bool Read_Zones_State();
 void Sleep_Prepare();
 uint32_t RTCmillis();
-void SmsReponse(String text, String phone, bool forced);
+bool SmsReponse(String text, String phone, bool forced);
 void CallReponse(String text, String phone, bool forced);
 void AlarmFiredSmsAdvise();
 void BatteryLowSmsAdvise();
@@ -819,7 +820,8 @@ void Sim800_ManageCommunicationOnCall(unsigned long timeout){
   //SIM_ONCALL = true;
   while(millis()-t<timeout)
   {
-    yield();
+    AlarmLoop();      //Check inputs status from time to time
+    //yield();
     Sim800_ManageCommunication();
     if (!SIM_ONCALL){             //call finished
       break;
@@ -922,8 +924,6 @@ bool Sim800_WriteCommand(String atcmd)  // atcmd="AT+<x>=<…>" Sets the user-de
   bool failed;
   for (int i = 0; i < SIM800_REPS; i++){
 
-    AlarmLoop();      //Check inputs status from time to time
-
     DEBUG_PRINTLN(F("Sending AT Write Command: ") + atcmd);
     sim800.println(atcmd);
     sim800.flush();
@@ -932,7 +932,6 @@ bool Sim800_WriteCommand(String atcmd)  // atcmd="AT+<x>=<…>" Sets the user-de
     failed = false;
     while(millis() - t < SIM800_TIMEOUT && !failed)         // loop through until there is a timeout or a response from the device
     {
-      yield();
       if(sim800.available()) //check if the device is sending a message
       {
         ans = sim800.readString(); // reads the response
@@ -956,6 +955,8 @@ bool Sim800_WriteCommand(String atcmd)  // atcmd="AT+<x>=<…>" Sets the user-de
           }
         }
       }
+      AlarmLoop();      //Check inputs status from time to time
+      //yield();
     }
   }
   return false; //not OK detected in any try
@@ -969,8 +970,6 @@ String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>
   String ans, line, rta;
   bool failed;
   for (int i = 0; i < SIM800_REPS; i++){
-
-    AlarmLoop();      //Check inputs status from time to time
 
     DEBUG_PRINTLN(F("Sending AT Read Command: ") + atcmd);
     sim800.println(atcmd);
@@ -997,7 +996,6 @@ String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>
     failed = false;
     while(millis() - t < SIM800_TIMEOUT && !failed)         // loop through until there is a timeout or a response from the device
     {
-      yield();
       if(sim800.available()) //check if the device is sending a message
       {
         ans = sim800.readString(); // reads the response
@@ -1043,6 +1041,8 @@ String Sim800_ReadCommand(String atcmd) // atcmd="AT+<x>?" or "AT+<x>" or "AT<x>
           }
         }
       }
+      AlarmLoop();      //Check inputs status from time to time
+      //yield();
     }
   }
   return "";
@@ -1508,7 +1508,11 @@ void doAction(String msg, String phone){
   }
 }
 
-void SmsReponse(String text, String phone, bool forced){
+bool SmsReponse(String text, String phone, bool forced){
+  unsigned long t;
+  String ans, line;
+  bool failed;
+  
   DEBUG_PRINTLN(text);
   //if forced = true, the sms will be sent even if it is not configured
   if (alarmConfig.Caller.GSMEnabled &&
@@ -1536,8 +1540,41 @@ void SmsReponse(String text, String phone, bool forced){
     sim800.println();
     sim800.flush();
     //Sim800_checkResponse(5000);
-    DelayYield(5000);    //because if other AT command is sent, will be ignored for a while.
+    //DelayYield(5000);    //because if other AT command is sent, will be ignored for a while.
+
+    t = millis();
+    failed = false;
+    while(millis() - t < SIM800_TIMEOUT_SMS && !failed)         // loop through until there is a timeout or a response from the device
+    {
+      if(sim800.available()) //check if the device is sending a message
+      {
+        ans = sim800.readString(); // reads the response
+        DEBUG_PRINTLN(ans);
+        while (ans.length()>0){
+          Sim800_RemoveEcho(ans);
+          line = Sim800_NextLine(ans);
+          if(line == "OK"){           //AT command OK, exit
+            if (ans.length()>0)
+              Sim800_Buffer_Add(ans); //in case any non requested command is received
+            DEBUG_PRINTLN(F("OK DETECTED"));
+            return true;
+          } else if(line == "ERROR" || line.substring(0,10) == "+CMS ERROR"){ //AT command error, retry
+            if (ans.length()>0)
+              Sim800_Buffer_Add(ans); //in case any non requested command is received
+            failed = true;
+            DEBUG_PRINTLN(F("ERROR DETECTED"));
+            break;
+          } else {
+            Sim800_Buffer_Add(line); //in case any non requested command is received
+          }
+        }
+      }
+      AlarmLoop();      //Check inputs status from time to time
+      //yield();
+    }
+    return false;
   }
+  return true;
 }
 
 void CallReponse(String text, String phone, bool forced){
@@ -1627,46 +1664,50 @@ uint32_t RTCmillis() {
 bool Read_Zones_State(){
   int s;
   bool zonesOk = true;  //not any zone triggered
-  for (int i = 0; i < SIZEOF_ZONE; i++){
-    if (alarmConfig.Zone[i].Enabled && !ZONE_DISABLED[i]){
-      s = digitalRead(GPIO_ID_PIN(ZONE_PIN[i]));
-      if ((alarmConfig.Zone[i].TriggerNC && s == HIGH) || (!alarmConfig.Zone[i].TriggerNC && s == LOW)){
-        zonesOk = false;
-        ZONE_TRIGGERED[i] = true;
-        if (ESP_ARMED && !ESP_FIRED){
-          if (ESP_FIREDELAY){                                           //Was previously triggered a delayed zone
-            if ((RTCmillis() - ESP_FIREDELAY_MILLIS)/1000 > alarmConfig.Zone[i].DelayOnSecs){
+  static unsigned int lastReadMillis = 0;
+  if (RTCmillis() - lastReadMillis > 500){
+    lastReadMillis = RTCmillis();
+    for (int i = 0; i < SIZEOF_ZONE; i++){
+      if (alarmConfig.Zone[i].Enabled && !ZONE_DISABLED[i]){
+        s = digitalRead(GPIO_ID_PIN(ZONE_PIN[i]));
+        if ((alarmConfig.Zone[i].TriggerNC && s == HIGH) || (!alarmConfig.Zone[i].TriggerNC && s == LOW)){
+          zonesOk = false;
+          ZONE_TRIGGERED[i] = true;
+          if (ESP_ARMED && !ESP_FIRED){
+            if (ESP_FIREDELAY){                                           //Was previously triggered a delayed zone
+              if ((RTCmillis() - ESP_FIREDELAY_MILLIS)/1000 > alarmConfig.Zone[i].DelayOnSecs){
+                AlarmFire();
+              }
+            } else if (alarmConfig.Zone[i].FirstAdviseDurationSecs > 0){  //Zone with first advise. Needs to be triggering at least FirstAdviseDurationSecs, after that the alarm will be fired
+              if (!ESP_FIRSTDELAY){                   //first advise trigger
+                ESP_FIRSTDELAY = true;
+                ESP_FIRSTDELAY_MILLIS = RTCmillis();
+              } else if ((RTCmillis() - ESP_FIRSTDELAY_MILLIS)/1000 > alarmConfig.Zone[i].FirstAdviseResetSecs){
+                ESP_FIRSTDELAY = false;               //first advise expired
+              } else if ((RTCmillis() - ESP_FIRSTDELAY_MILLIS)/1000 > alarmConfig.Zone[i].FirstAdviseDurationSecs){
+                AlarmFire();                     //first advise fires alarm
+              }
+            } else if (alarmConfig.Zone[i].DelayOnSecs > 0){              //Zone with delay on
+              ESP_FIREDELAY = true;
+              ESP_FIREDELAY_MILLIS = RTCmillis();
+            } else {                                                      //No delay on
               AlarmFire();
             }
-          } else if (alarmConfig.Zone[i].FirstAdviseDurationSecs > 0){  //Zone with first advise. Needs to be triggering at least FirstAdviseDurationSecs, after that the alarm will be fired
-            if (!ESP_FIRSTDELAY){                   //first advise trigger
-              ESP_FIRSTDELAY = true;
-              ESP_FIRSTDELAY_MILLIS = RTCmillis();
-            } else if ((RTCmillis() - ESP_FIRSTDELAY_MILLIS)/1000 > alarmConfig.Zone[i].FirstAdviseResetSecs){
-              ESP_FIRSTDELAY = false;               //first advise expired
-            } else if ((RTCmillis() - ESP_FIRSTDELAY_MILLIS)/1000 > alarmConfig.Zone[i].FirstAdviseDurationSecs){
-              AlarmFire();                     //first advise fires alarm
-            }
-          } else if (alarmConfig.Zone[i].DelayOnSecs > 0){              //Zone with delay on
-            ESP_FIREDELAY = true;
-            ESP_FIREDELAY_MILLIS = RTCmillis();
-          } else {                                                      //No delay on
-            AlarmFire();
+          }
+          if (ESP_ARMED && ZONE_STATE[i] != s){       //Zone had a new trigger -> register it
+            ZONE_COUNT[i]++;
+            DEBUG_PRINTLN("Zone" + String(i) + "triggered!");
           }
         }
-        if (ESP_ARMED && ZONE_STATE[i] != s){       //Zone had a new trigger -> register it
-          ZONE_COUNT[i]++;
-          DEBUG_PRINTLN("Zone" + String(i) + "triggered!");
+        else{
+          ZONE_TRIGGERED[i] = false;
         }
+        ZONE_STATE[i] = s;
       }
-      else{
-        ZONE_TRIGGERED[i] = false;
-      }
-      ZONE_STATE[i] = s;
     }
   }
-  s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
   if (alarmConfig.Caller.GSMEnabled){
+    s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
     if (!SIM_RINGING && s == LOW){
       SIM_RINGING = true;
       //SIM_ONCALL = true;
