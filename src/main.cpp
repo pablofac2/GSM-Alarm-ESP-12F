@@ -14,6 +14,8 @@ Text to speech:
 https://github.com/earlephilhower/ESP8266SAM
 https://github.com/earlephilhower/ESP8266Audio
 
+
+Consuming now 7ma on 12v
 */
 #include <ESP_EEPROM.h>     //En esta librería agregué #include string.h
 #include <ESP8266WiFi.h>
@@ -106,15 +108,15 @@ String HTMLConfig = "";
 #define SIM800_MAXCALLMILLIS 300000 //max call duration: 5minutes
 #define SIM800baudrate 9600   //too fast generates issues when receibing SMSs, buffer is overloaded and the SMS AT arrives incomplete
 #define DEBUGbaudrate 115200
-#define SLEEP_TIME_MS 100 //mili seconds of light sleep periods between input readings
+#define SLEEP_TIME_MS 500 // 100 mili seconds of light sleep periods between input readings
 
-#define WIFI_DURATION_MS 120000 // 300000 //Wifi setup duration: 5minutes
+#define WIFI_DURATION_MS 60000 // 300000 //Wifi setup duration: 5minutes
 #define ESP_BLINKINGON_MS 500    //blinking led on time
 #define ESP_BLINKINGOFF_MS 1000  //blinking led off time
 #define ESP_BLINKINGONFIRED_MS 200    //blinking led on time
 #define ESP_BLINKINGOFFFIRED_MS 500  //blinking led off time
 
-#define ESP_VOLTAGE_MIN 12      //minimum voltage baterry to trigger the alarm
+#define ESP_VOLTAGE_MIN 11      //minimum voltage baterry to trigger the alarm
 #define ESP_VOLTAGE_RESET 12.5  //voltage baterry to reset the battery alarm
 #define ESP_VOLTAGE_MS 30000  //frequency to read the battery voltage
 unsigned long ESP_VOLTAGE_READMILLIS = 0; //last voltage read millis
@@ -256,8 +258,8 @@ bool ReadyToArm = false;
 
 #define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
 #ifdef DEBUG
-  #define DEBUG_PRINTLN(x) // Serial.println(x)
-  #define DEBUG_PRINT(x)  //Serial.print(x)
+  #define DEBUG_PRINTLN(x) Serial.println(x)
+  #define DEBUG_PRINT(x) Serial.print(x)
   #define DEBUG_FLUSH //Serial.flush()
   #include <SoftwareSerial.h>
   #define rxPin D1 //D1 = GPIO5  al tx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
@@ -372,7 +374,7 @@ void setup() {
 
   for (int i = 0; i < SIZEOF_ZONE; i++){
     GPIO_DIS_OUTPUT(GPIO_ID_PIN(ZONE_PIN[i]));    //Configura la pata como entrada, traido de Sleep_Forced
-    pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);
+    pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);  //INPUT_PULLUP *******************
     ZONE_DISABLED[i] = false;
     ZONE_COUNT[i] = 0;
     ZONE_TRIGGERED[i] = false;
@@ -384,15 +386,15 @@ void setup() {
     SIREN_FORCED[i] = false;
   }
   //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
-  pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP); //to read SIM800 RING, later will be set temporarily as output to reset SIM800
+  pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP); //  INPUT_PULLUP *******************  to read SIM800 RING, later will be set temporarily as output to reset SIM800
 
   #ifdef DEBUG
     Serial.begin(DEBUGbaudrate);
     //AGREGADO:
-    while(!Serial)
+    /*while(!Serial)  ***************************************************
     {
       yield();
-    }  
+    }  */
     DEBUG_PRINTLN();
     DEBUG_PRINT(F("\nReset reason = "));
     String resetCause = ESP.getResetReason();
@@ -431,7 +433,7 @@ void setup() {
 
   ConfigStringCopy(alarmConfig, HTMLConfig, true);
 
-  ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
+  ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config   ****************************************
   DEBUG_PRINTLN(F("Wifi Conectado"));
 
   //out = new AudioOutputI2S();
@@ -496,7 +498,7 @@ void loop() {
   if (!ESP_WIFI && !SIM_ONCALL && !SIM_RINGING && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){
     if (!SIM_SLEEPING){
       Sim800_enterSleepMode();
-      DelayYield(500);
+      DelayYield(500);  //500
     }
     if (!ESP_READYTOSLEEP)
       Sleep_Prepare();
@@ -543,12 +545,15 @@ void AlarmLoop()
   //DEBUG_PRINT(F("."));
   ReadyToArm = Read_Zones_State();
 
+  SIREN_FORCED[1] = !SIREN_FORCED[1]; //*****************************************************
+
   //write outputs:
   for (int i=0; i < SIZEOF_SIREN; i++){
     if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
       digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
     }
     else{
+      //pinMode(GPIO_ID_PIN(SIREN_PIN[i]), INPUT);  //************************************************************
       digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
     }
   }
@@ -1130,6 +1135,8 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
             
           SmsMessage smsmsg = extractSms(temp);  //buff + "\n\r" + buff2);
           doAction(smsmsg.Message, smsmsg.Phone);
+
+          SIM_RINGING = false; //**********************************************************************************
         }
         //else if(line == "OK"){
         //  DEBUG_PRINTLN("OK DETECTADO");
@@ -1554,6 +1561,8 @@ void CallReponse(String text, String phone, bool forced){
 }
 
 void Sleep_Prepare(){
+  server.end();
+  WiFi.mode(WIFI_OFF);
   delay(1);                                   //Needs a small delay at the begining!
   //gpio_pin_wakeup_disable();                //If only timed sleep, not pin interrupt
   wifi_station_disconnect();                  //disconnect wifi
@@ -1593,7 +1602,7 @@ void Sleep_Forced() {
   sint8 res = wifi_fpm_do_sleep(SLEEP_TIME_MS * 1000);  //microseconds
   delay(SLEEP_TIME_MS + 1);  // it goes to sleep //The system will not enter sleep mode instantly when force-sleep APIs are called, but only after executing an idle task.
   
-  DEBUG_PRINTLN(F("Sleep result (0 is ok): ") + String(res));  // the interrupt callback hits before this is executed
+  //DEBUG_PRINTLN(F("Sleep result (0 is ok): ") + String(res));  // the interrupt callback hits before this is executed
   //0, setting successful;
   //-1, failed to sleep, sleep status error;
   //-2, failed to sleep, force sleep function is not enabled
@@ -1601,8 +1610,11 @@ void Sleep_Forced() {
 
 void WakeUpCallBackFunction()
 {
-  DEBUG_PRINTLN(F("Woke Up - CallBack Function executed at ms: ") + String(RTCmillis()));
-  DEBUG_FLUSH;
+  Serial.println();
+  Serial.flush();
+  //DEBUG_PRINTLN(F("Woke Up - CallBack Function executed at ms: ") + String(RTCmillis()));
+  //DEBUG_FLUSH;
+  //AlarmLoop();
   //wifi_fpm_close();					 	        //Only if not sleeping gain, disable force sleep function
   //wifi_set_opmode(STATION_MODE);			//If need to set station mode
   //wifi_station_connect();							//If need to connect to AP
