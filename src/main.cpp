@@ -205,7 +205,7 @@ struct SmsMessage {
   String Phone;
   String Message;
 };
-/*static const uint8_t _responseInfoSize = 12; 
+static const uint8_t _responseInfoSize = 12; 
 const String _responseInfo[_responseInfoSize] =
     {"ERROR",
     "NOT READY",
@@ -219,7 +219,7 @@ const String _responseInfo[_responseInfoSize] =
     "CLOSED",
     ">",
     "OK"};
-byte _checkResponse(uint16_t timeout);*/
+byte _checkResponse(uint16_t timeout);
 
 //ESP8266 Status:
 bool ESP_WIFI = true;      //Wifi enabled during start up (120 secs)
@@ -302,7 +302,7 @@ bool Sim800_enterSleepMode();
 bool Sim800_disableSleep();
 //String Sim800_Wait_Cmd(uint16_t timeout, String cmd);
 //String Sim800_AnswerString(uint16_t timeout);
-//byte Sim800_checkResponse(unsigned long timeout);
+byte Sim800_checkResponse(unsigned long timeout);
 //bool Sim800_setFullMode();
 void parseData(String buff);
 SmsMessage extractSms(String buff);
@@ -1306,7 +1306,7 @@ void Sim800_HardReset(){
   Sim800_Connect();
 }
 
-/*byte Sim800_checkResponse(unsigned long timeout){
+byte Sim800_checkResponse(unsigned long timeout){
   // This function handles the response from the radio and returns a status response
   uint8_t Status = 99; // the defualt stat and it means a timeout
   unsigned long t = millis();
@@ -1317,7 +1317,7 @@ void Sim800_HardReset(){
     if(sim800.available()) //check if the device is sending a message
     {
       String tempData = sim800.readString(); // reads the response
-      DEBUG_PRINTLN(tempData);*/
+      DEBUG_PRINTLN(tempData);
       /*
       * Checks for the status response
       * Response are - OK, ERROR, READY, >, CONNECT OK
@@ -1331,7 +1331,7 @@ void Sim800_HardReset(){
       * CLOSED - 5
       * > - 6
       * OK - 7
-      *//*
+      */
       for (byte i=0; i<_responseInfoSize; i++)
       {
         //if((strstr(mydataIn, _responseInfo[i])) != NULL)
@@ -1346,7 +1346,7 @@ void Sim800_HardReset(){
     }
   }
   return Status;
-}*/
+}
 
 void parseData(String buff)
 {
@@ -1637,7 +1637,8 @@ void Sleep_Forced() {
   //delay(10);
 
   //If timed light sleep and external gpio wake:
-  sint8 res = wifi_fpm_do_sleep(SLEEP_TIME_MS * 1000);  //microseconds
+  //sint8 res = wifi_fpm_do_sleep(SLEEP_TIME_MS * 1000);  //microseconds
+  wifi_fpm_do_sleep(SLEEP_TIME_MS * 1000);  //microseconds
   delay(SLEEP_TIME_MS + 1);  // it goes to sleep //The system will not enter sleep mode instantly when force-sleep APIs are called, but only after executing an idle task.
   
   //DEBUG_PRINTLN(F("Sleep result (0 is ok): ") + String(res));  // the interrupt callback hits before this is executed
