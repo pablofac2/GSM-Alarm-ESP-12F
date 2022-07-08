@@ -350,6 +350,7 @@ void Sim800_RemoveEcho(String &buff);
 String Sim800_NextLine(String &buff);
 bool Sim800_UnsolicitedResultCode(String line);
 void BlinkLED();
+void Read_Ring_State();
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -478,10 +479,12 @@ void loop() {
 
   //BlinkLED();
 
-  //If too much time in a call, hang up
-  if (SIM_ONCALL && (RTCmillis() - SIM_ONCALLMILLIS) > SIM800_MAXCALLMILLIS){
+  //If too much time in a call or ringing, hang up
+  if ((SIM_RINGING || SIM_ONCALL) && (RTCmillis() - SIM_ONCALLMILLIS) > SIM800_MAXCALLMILLIS){
     Sim800_WriteCommand(F("ATH"));//hang up
     SIM_ONCALL = false;
+    SIM_RINGING = false;
+    DTMFs = "";
   }
 
   //Auto Alarm Arm
@@ -506,7 +509,6 @@ void loop() {
       Sleep_Prepare();
     Sleep_Forced();
   }
-
 
   /*//Configuring the ESP to be able to LIGHT SLEEP:
   if (!ReadyToSleep && RTCmillis() > 60000)
@@ -542,21 +544,26 @@ void loop() {
 
 void AlarmLoop()
 {
-  //***************test if it was read too recently, skip this read ******
-  //read inputs:
-  //DEBUG_PRINT(F("."));
-  ReadyToArm = Read_Zones_State();
+  static uint32_t lastReadMillis = 0;
 
-  SIREN_FORCED[1] = !SIREN_FORCED[1]; //*****************************************************
+  void Read_Ring_State();
 
-  //write outputs:
-  for (int i=0; i < SIZEOF_SIREN; i++){
-    if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
-      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
-    }
-    else{
-      //pinMode(GPIO_ID_PIN(SIREN_PIN[i]), INPUT);  //************************************************************
-      digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+  if (RTCmillis() - lastReadMillis > (uint32_t)ESP_ZONES_READ_MS){
+    lastReadMillis = RTCmillis();
+
+    ReadyToArm = Read_Zones_State();
+
+    SIREN_FORCED[1] = !SIREN_FORCED[1]; //*****************************************************
+
+    //write outputs:
+    for (int i=0; i < SIZEOF_SIREN; i++){
+      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
+        digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+      }
+      else{
+        //pinMode(GPIO_ID_PIN(SIREN_PIN[i]), INPUT);  //************************************************************
+        digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+      }
     }
   }
 }
@@ -1666,9 +1673,9 @@ uint32_t RTCmillis() {
 bool Read_Zones_State(){
   int s;
   bool zonesOk = true;  //not any zone triggered
-  static uint32_t lastReadMillis = 0;
-  if (RTCmillis() - lastReadMillis > (uint32_t)ESP_ZONES_READ_MS){
-    lastReadMillis = RTCmillis();
+//  static uint32_t lastReadMillis = 0;
+//  if (RTCmillis() - lastReadMillis > (uint32_t)ESP_ZONES_READ_MS){
+//    lastReadMillis = RTCmillis();
     for (int i = 0; i < SIZEOF_ZONE; i++){
       if (alarmConfig.Zone[i].Enabled && !ZONE_DISABLED[i]){
         s = digitalRead(GPIO_ID_PIN(ZONE_PIN[i]));
@@ -1707,8 +1714,12 @@ bool Read_Zones_State(){
         ZONE_STATE[i] = s;
       }
     }
-  }
+//  }
+  return zonesOk;
+}
+void Read_Ring_State(){
   if (alarmConfig.Caller.GSMEnabled){
+    int s;
     s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
     if (!SIM_RINGING && s == LOW){
       SIM_RINGING = true;
@@ -1728,7 +1739,6 @@ bool Read_Zones_State(){
       //delay(2000);  //BORRAR ****************************************
     }
   } 
-  return zonesOk;
 }
 
 /*void Sleep_Forced_NotWorking() {
