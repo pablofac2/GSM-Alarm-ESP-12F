@@ -112,6 +112,7 @@ String HTMLConfig = "";
 #define SLEEP_TIME_MS 500 // 100 mili seconds of light sleep periods between input readings
 
 #define WIFI_DURATION_MS 60000 // 300000 //Wifi setup duration: 5minutes
+#define ESP_ZONES_READ_MS 500    //frequency reading Zones
 #define ESP_BLINKINGON_MS 500    //blinking led on time
 #define ESP_BLINKINGOFF_MS 1000  //blinking led off time
 #define ESP_BLINKINGONFIRED_MS 200    //blinking led on time
@@ -204,7 +205,7 @@ struct SmsMessage {
   String Phone;
   String Message;
 };
-static const uint8_t _responseInfoSize = 12; 
+/*static const uint8_t _responseInfoSize = 12; 
 const String _responseInfo[_responseInfoSize] =
     {"ERROR",
     "NOT READY",
@@ -218,7 +219,7 @@ const String _responseInfo[_responseInfoSize] =
     "CLOSED",
     ">",
     "OK"};
-byte _checkResponse(uint16_t timeout);
+byte _checkResponse(uint16_t timeout);*/
 
 //ESP8266 Status:
 bool ESP_WIFI = true;      //Wifi enabled during start up (120 secs)
@@ -299,9 +300,9 @@ String Sim800_Buffer_Read();
 bool Sim800_Connect();
 bool Sim800_enterSleepMode();
 bool Sim800_disableSleep();
-String Sim800_Wait_Cmd(uint16_t timeout, String cmd);
-String Sim800_AnswerString(uint16_t timeout);
-byte Sim800_checkResponse(unsigned long timeout);
+//String Sim800_Wait_Cmd(uint16_t timeout, String cmd);
+//String Sim800_AnswerString(uint16_t timeout);
+//byte Sim800_checkResponse(unsigned long timeout);
 //bool Sim800_setFullMode();
 void parseData(String buff);
 SmsMessage extractSms(String buff);
@@ -804,7 +805,6 @@ void ConfigWifi(){
 void notFound(AsyncWebServerRequest *request) {
   request->send(404, "text/plain", "Not found");
 }
-
 String processor(const String& var){
   if(var == "htmladminpass"){
     return HTMLAdminPass;
@@ -828,7 +828,6 @@ void Sim800_ManageCommunicationOnCall(unsigned long timeout){
     }
   }
 }
-
 void Sim800_ManageCommunication(){
   String readstr = "";
   if (!SIM_SLEEPING){
@@ -859,11 +858,13 @@ void Sim800_ManageCommunication(){
 }
 
 void BatteryLowSmsAdvise(){
-  Sim800_disableSleep();
-  String msg="BATTERY LOW!";
-  msg += AlarmStatusText();
-  for (int i=0; i < SIZEOF_SMSPHONE; i++){
-    SmsReponse(msg, String(alarmConfig.Caller.SMSPhone[i].Number), true);
+  if (alarmConfig.Caller.SMSResponse || alarmConfig.Caller.SMSOnAlarm){
+    Sim800_disableSleep();
+    String msg="BATTERY LOW!";
+    msg += AlarmStatusText();
+    for (int i=0; i < SIZEOF_SMSPHONE; i++){
+      SmsReponse(msg, String(alarmConfig.Caller.SMSPhone[i].Number), true);
+    }
   }
 }
 
@@ -1305,7 +1306,7 @@ void Sim800_HardReset(){
   Sim800_Connect();
 }
 
-byte Sim800_checkResponse(unsigned long timeout){
+/*byte Sim800_checkResponse(unsigned long timeout){
   // This function handles the response from the radio and returns a status response
   uint8_t Status = 99; // the defualt stat and it means a timeout
   unsigned long t = millis();
@@ -1316,7 +1317,7 @@ byte Sim800_checkResponse(unsigned long timeout){
     if(sim800.available()) //check if the device is sending a message
     {
       String tempData = sim800.readString(); // reads the response
-      DEBUG_PRINTLN(tempData);
+      DEBUG_PRINTLN(tempData);*/
       /*
       * Checks for the status response
       * Response are - OK, ERROR, READY, >, CONNECT OK
@@ -1330,7 +1331,7 @@ byte Sim800_checkResponse(unsigned long timeout){
       * CLOSED - 5
       * > - 6
       * OK - 7
-      */
+      *//*
       for (byte i=0; i<_responseInfoSize; i++)
       {
         //if((strstr(mydataIn, _responseInfo[i])) != NULL)
@@ -1345,7 +1346,7 @@ byte Sim800_checkResponse(unsigned long timeout){
     }
   }
   return Status;
-}
+}*/
 
 void parseData(String buff)
 {
@@ -1664,8 +1665,8 @@ uint32_t RTCmillis() {
 bool Read_Zones_State(){
   int s;
   bool zonesOk = true;  //not any zone triggered
-  static unsigned int lastReadMillis = 0;
-  if (RTCmillis() - lastReadMillis > 500){
+  static uint32_t lastReadMillis = 0;
+  if (RTCmillis() - lastReadMillis > (uint32_t)ESP_ZONES_READ_MS){
     lastReadMillis = RTCmillis();
     for (int i = 0; i < SIZEOF_ZONE; i++){
       if (alarmConfig.Zone[i].Enabled && !ZONE_DISABLED[i]){
@@ -1756,7 +1757,7 @@ bool Read_Zones_State(){
   DEBUG_PRINTLN(F("RESULTADO DEL SLEEP: ") + String(res));
 }*/
 
-void Sleep_Timed() {
+/*void Sleep_Timed() {
   DEBUG_PRINTLN(F("\nTimed Light Sleep, wake by time"));
 
   // for timer-based light sleep to work, the os timers need to be disconnected:
@@ -1782,9 +1783,9 @@ void Sleep_Timed() {
   //0, setting successful;
   //-1, failed to sleep, sleep status error;
   //-2, failed to sleep, force sleep function is not enabled
-}
+}*/
 
-String Sim800_Wait_Cmd(uint16_t timeout, String cmd){
+/*String Sim800_Wait_Cmd(uint16_t timeout, String cmd){
   unsigned long t = millis();
   while(millis()-t<timeout)         // loop through until their is a timeout or a response from the device
   {
@@ -1803,9 +1804,9 @@ String Sim800_Wait_Cmd(uint16_t timeout, String cmd){
     }
   }
   return "";
-}
+}*/
 
-String Sim800_AnswerString(uint16_t timeout){
+/*String Sim800_AnswerString(uint16_t timeout){
   unsigned long t = millis();
   while(millis()-t<timeout)         // loop through until their is a timeout or a response from the device
   {
@@ -1820,7 +1821,7 @@ String Sim800_AnswerString(uint16_t timeout){
     }
   }
   return "";
-}
+}*/
 
 float readVoltage() { // read internal VCC
   //DEBUG_PRINTLN("The internal VCC reads " + String(volts / 1000) + " volts");
