@@ -198,7 +198,7 @@ esp8266::polledTimeout::oneShotMs wifiTimeout(timeout);  // 30 second timeout on
 // use fully qualified type and avoid importing all ::esp8266 namespace to the global namespace
 */
 
-unsigned long WIFI_TOMEOUT_MILLIS = 0;
+uint32_t WIFI_TOMEOUT_MILLIS = 0;
 //const String PHONE = "+543414681709";
 //String smsStatus,senderNumber,receivedDate,msg;
 struct SmsMessage {
@@ -501,8 +501,8 @@ void loop() {
   }
 
   //Wifi configuration at startup preventing to sleep
-  if (ESP_WIFI && (RTCmillis() > (unsigned int)WIFI_DURATION_MS)){
-    DEBUG_PRINTLN(F("Wifi Timout"));
+  if (ESP_WIFI && ((RTCmillis() - WIFI_TOMEOUT_MILLIS) > (uint32_t)WIFI_DURATION_MS)){
+    DEBUG_PRINTLN(F("Wifi Timeout"));
     ESP_WIFI = false;
   }
 
@@ -806,6 +806,7 @@ void ConfigWifi(){
 
   server.on("/pass", HTTP_GET, [](AsyncWebServerRequest *request){ //Send a GET request to <ESP_IP>/pass?HTMLAdminPass=<inputMessage>
     if (request->hasParam("htmladminpass")) {
+      WIFI_TOMEOUT_MILLIS = RTCmillis();
       HTMLAdminPass = request->getParam("htmladminpass")->value();
       DEBUG_PRINTLN(F("htmladminpass = ") + HTMLAdminPass);
     }
