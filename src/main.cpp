@@ -109,7 +109,7 @@ String HTMLConfig = "";
 #define SIM800_MAXCALLMILLIS 300000 //max call duration: 5minutes
 #define SIM800baudrate 9600   //too fast generates issues when receibing SMSs, buffer is overloaded and the SMS AT arrives incomplete
 #define DEBUGbaudrate 115200
-#define SLEEP_TIME_MS 500 // 100 mili seconds of light sleep periods between input readings
+#define SLEEP_TIME_MS 100 // 100 mili seconds of light sleep periods between input readings
 
 #define WIFI_DURATION_MS 60000 // 300000 //Wifi setup duration: 5minutes
 #define ESP_ZONES_READ_MS 500    //frequency reading Zones
@@ -231,7 +231,7 @@ bool ESP_FIREDELAY = false; //Alarm fired delay (delayed zone activated)
 uint32_t ESP_FIREDELAY_MILLIS; //Alarm fired delay millis start
 bool ESP_FIRED = false;     //Alarm fired (siren activated)
 uint32_t ESP_FIRED_MILLIS;  //Alarm fired millis
-bool ESP_FIREDTOUT = false; //Alarm fired time out (siren silenced after max siren time)
+//bool ESP_FIREDTOUT = false; //Alarm fired time out (siren silenced after max siren time)
 bool ESP_READYTOSLEEP = false;
 bool ESP_LOWBATTERY = false;
 //uint8_t ESPStatus = ESP_WIFI;
@@ -285,6 +285,7 @@ const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};
 const uint8_t SIREN_DEF[SIZEOF_SIREN] = {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW
 bool SIREN_FORCED[SIZEOF_SIREN]; //if forced, the output status will be overriden to the oposite of SIREN_DEF despite the alarm status.
 bool SIREN_DISABLED[SIZEOF_SIREN];
+bool SIREN_TIMEOUT[SIZEOF_SIREN];
 
 //ADC_MODE(ADC_VCC);  //don't connect anything to the analog input pin(s)! allows you to monitor the internal VCC level; it varies with WiFi load
 //int ZoneStatus[SIZEOF_ZONE];
@@ -443,11 +444,16 @@ void setup() {
   out = new AudioOutputI2SNoDAC();
   out->begin();
   DEBUG_PRINTLN(F("Text to speech iniciado"));
+
+  AlarmDisarm();  //initialize states
 }
 
 void loop() {
   static bool espFiredPrev = false;
   //static bool espVoltageOk = true;
+
+  //if (digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN)) == LOW)
+  //  DEBUG_PRINTLN(F("RINGGGGGG"));
 
   AlarmLoop();
 
@@ -500,7 +506,7 @@ void loop() {
   }
 
   //Going to sleep
-  if (!ESP_WIFI && !SIM_ONCALL && !SIM_RINGING && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){
+  if (!ESP_WIFI && !SIM_ONCALL && !SIM_RINGING){ // && !ESP_FIRSTDELAY && !ESP_FIREDELAY && !ESP_FIRED){ //***make it sleep when fired*****************************
     if (!SIM_SLEEPING){
       Sim800_enterSleepMode();
       DelayYield(500);  //500
@@ -546,7 +552,7 @@ void AlarmLoop()
 {
   static uint32_t lastReadMillis = 0;
 
-  void Read_Ring_State();
+  Read_Ring_State();
 
   if (RTCmillis() - lastReadMillis > (uint32_t)ESP_ZONES_READ_MS){
     lastReadMillis = RTCmillis();
@@ -557,8 +563,10 @@ void AlarmLoop()
 
     //write outputs:
     for (int i=0; i < SIZEOF_SIREN; i++){
-      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED)){
+      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED && !SIREN_TIMEOUT[i])){
         digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+        if ((lastReadMillis - ESP_FIRED_MILLIS) > alarmConfig.Siren[i].MaxDurationSecs)
+          SIREN_TIMEOUT[i] = true;
       }
       else{
         //pinMode(GPIO_ID_PIN(SIREN_PIN[i]), INPUT);  //************************************************************
@@ -1319,7 +1327,7 @@ byte Sim800_checkResponse(unsigned long timeout){
   unsigned long t = millis();
   while(millis()-t<timeout)
   {
-    yield();
+    //yield();
     //count++;
     if(sim800.available()) //check if the device is sending a message
     {
@@ -1351,6 +1359,7 @@ byte Sim800_checkResponse(unsigned long timeout){
       }
       Sim800_Buffer_Add(tempData);  //Appeared somthing different than expected (sms or call), save for later
     }
+    AlarmLoop();
   }
   return Status;
 }
@@ -1370,10 +1379,12 @@ void AlarmDisarm(){
   ESP_ARMED = false;
   ESP_FIRED = false;
   ESP_FIREDELAY = false;
-  ESP_FIREDTOUT = false;
   for(int i=0; i < SIZEOF_ZONE; i++){
     ZONE_COUNT[i] = 0;
     ZONE_TRIGGERED[i] = false;
+  }
+  for(int i=0; i < SIZEOF_SIREN; i++){
+    SIREN_TIMEOUT[i] = false;
   }
 }
 
@@ -1390,7 +1401,9 @@ void AlarmReArm(){
   ESP_ARMED = true;
   ESP_FIRED = false;
   ESP_FIREDELAY = false;
-  ESP_FIREDTOUT = false;
+  for(int i=0; i < SIZEOF_SIREN; i++){
+    SIREN_TIMEOUT[i] = false;
+  }
 }
 
 SmsMessage extractSms(String buff)  //+CMGR: <stat>,<fo>,<ct>[,<pid>[,<mn>][,<da>][,<toda>],<length><CR><LF><cdata>]
@@ -1719,12 +1732,11 @@ bool Read_Zones_State(){
 }
 void Read_Ring_State(){
   if (alarmConfig.Caller.GSMEnabled){
-    int s;
-    s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
+    int s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
     if (!SIM_RINGING && s == LOW){
       SIM_RINGING = true;
       //SIM_ONCALL = true;
-      //SIM_ONCALLMILLIS = RTCmillis();
+      SIM_ONCALLMILLIS = RTCmillis();
       DTMFs="";
       SIM_WAITINGDTMF_ADA = false;
       DEBUG_PRINTLN("From Sim800 RI PIN: RINGING");
