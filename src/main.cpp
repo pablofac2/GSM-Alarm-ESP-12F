@@ -352,6 +352,7 @@ String Sim800_NextLine(String &buff);
 bool Sim800_UnsolicitedResultCode(String line);
 void BlinkLED();
 void Read_Ring_State();
+bool SirenOnPeriod(int i, uint32_t ms);
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -563,7 +564,7 @@ void AlarmLoop()
 
     //write outputs:
     for (int i=0; i < SIZEOF_SIREN; i++){
-      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED && !SIREN_TIMEOUT[i])){
+      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){
         digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
         if ((lastReadMillis - ESP_FIRED_MILLIS) > alarmConfig.Siren[i].MaxDurationSecs)
           SIREN_TIMEOUT[i] = true;
@@ -573,6 +574,17 @@ void AlarmLoop()
         digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
       }
     }
+  }
+}
+
+bool SirenOnPeriod(int i, uint32_t ms) //Determines if the siren has to be on or off according to pulse / pause
+{
+  uint32_t r = (ms - ESP_FIRED_MILLIS) % (alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs);
+  if (r <= alarmConfig.Siren[i].PulseSecs){
+    return true;
+  }
+  else{
+    return false;
   }
 }
 
