@@ -261,9 +261,9 @@ bool ReadyToArm = false;
 
 #define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
 #ifdef DEBUG
-  #define DEBUG_PRINTLN(x) Serial.println(x)
-  #define DEBUG_PRINT(x) Serial.print(x)
-  #define DEBUG_FLUSH //Serial.flush()
+  #define DEBUG_PRINTLN(x) //Serial.println(x)  ************************************
+  #define DEBUG_PRINT(x) //Serial.print(x)    *****************************************
+  #define DEBUG_FLUSH //Serial.flush()        *****************************************
   #include <SoftwareSerial.h>
   #define rxPin D1 //D1 = GPIO5  al tx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
   #define txPin D2 //D2 = GPIO4  al rx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
@@ -569,13 +569,10 @@ void AlarmLoop()
           DEBUG_PRINTLN(F("SIREN 1 ") + String(SIREN_DEF[i]));
           digitalWrite(D4, LOW);
         }*/
-        if (ESP_FIRED && (lastReadMillis > ESP_FIRED_MILLIS) && ((lastReadMillis - ESP_FIRED_MILLIS) > (1000*(uint32_t)alarmConfig.Siren[i].MaxDurationSecs))){
-          SIREN_TIMEOUT[i] = true;
-          DEBUG_PRINTLN("TIMEOUT SIRENA!!!, tiempo max " + String(alarmConfig.Siren[i].MaxDurationSecs));
-          DEBUG_PRINTLN("TIMEOUT SIRENA!!!, esp_fired millis " + String(ESP_FIRED_MILLIS));
-          DEBUG_PRINTLN("TIMEOUT SIRENA!!!, lastReadMillis " + String(lastReadMillis));
-          DEBUG_FLUSH;
-          DelayYield(10000);
+        if (ESP_FIRED){
+          if ((lastReadMillis > ESP_FIRED_MILLIS) && ((lastReadMillis - ESP_FIRED_MILLIS) > (1000*(uint32_t)alarmConfig.Siren[i].MaxDurationSecs))){
+            SIREN_TIMEOUT[i] = true;
+          }
         }
       }
       else{
@@ -594,8 +591,6 @@ void AlarmLoop()
 bool SirenOnPeriod(int i, uint32_t ms) //Determines if the siren has to be on or off according to pulse / pause
 {
   uint32_t r = (ms - ESP_FIRED_MILLIS) % (1000*(uint32_t)(alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs));
-  DEBUG_PRINTLN(String(r));
-  DEBUG_FLUSH;
   if (r <= (1000*(uint32_t)alarmConfig.Siren[i].PulseSecs)){
     return true;
   }
