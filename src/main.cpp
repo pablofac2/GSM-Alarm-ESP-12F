@@ -1773,7 +1773,7 @@ void Read_Ring_State(){
       DEBUG_PRINTLN("From Sim800 RI PIN: RINGING");
       //delay(2000);  //BORRAR ****************************************
     }
-    else if (SIM_RINGING && s == HIGH) {
+    else if (SIM_RINGING && s == HIGH && (RTCmillis() - SIM_ONCALLMILLIS) > 10000) { //10secs to give some wime not sleeping to read incoming SMS if the case
       SIM_RINGING = false;
       //SIM_ONCALL = false;
       //DTMFs="";
