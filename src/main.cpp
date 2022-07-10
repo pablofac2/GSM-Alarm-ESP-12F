@@ -18,18 +18,19 @@ https://github.com/earlephilhower/ESP8266Audio
 Consuming now 7ma on 12v
 */
 #include <ESP_EEPROM.h>     //En esta librería agregué #include string.h
-#include <ESP8266WiFi.h>
+#include <ESP8266WiFi.h>    //Debe estar casi primera, de lo contrario da error de compilación en librerías que dependen de esta.
 #include <coredecls.h>         // crc32()
 #include <PolledTimeout.h>
 #include <include/WiFiState.h> // WiFiState structure details
 #include <Arduino.h>
-#ifdef ESP32
-  #include <WiFi.h>
-  #include <AsyncTCP.h>
-#else
-  #include <ESP8266WiFi.h>
+//#ifdef ESP32
+//  #include <WiFi.h>
+//  #include <AsyncTCP.h>
+//#else
+//  #include <ESP8266WiFi.h>
   #include <ESPAsyncTCP.h>
-#endif
+//#endif
+
 //#include <ESP8266WebServer.h>
 #include <ESPAsyncWebServer.h>
 // enter your WiFi configuration below
@@ -357,6 +358,47 @@ bool SirenOnPeriod(int i, uint32_t ms);
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
 
+  #ifdef DEBUG
+    Serial.begin(DEBUGbaudrate);
+    //AGREGADO:
+    /*while(!Serial)  ***************************************************
+    {
+      yield();
+    }  */
+    DEBUG_PRINTLN();
+    DEBUG_PRINT(F("\nReset reason = "));
+    String resetCause = ESP.getResetReason();
+    DEBUG_PRINTLN(resetCause);
+  #endif
+
+  //Initialize config if EEPROM is empty
+  DEBUG_PRINT(F("\nalarmConfig Size= "));
+  DEBUG_PRINTLN(sizeof(alarmConfig));
+
+  //Initialize EEPROM and read config
+  DEBUG_PRINTLN(F("**** Reading EEPROM ****"));
+  EEPROM.begin(sizeof(alarmConfig));
+  EEPROM.get(0, alarmConfig);
+  yield();
+
+  DEBUG_PRINT(MEMCHECK[0]);
+  DEBUG_PRINTLN(MEMCHECK[1]);
+  DEBUG_PRINT(alarmConfig.MemCheck[0]);
+  DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
+  if(alarmConfig.MemCheck[0] != MEMCHECK[0] || alarmConfig.MemCheck[1] != MEMCHECK[1]){  //EEPROM empty
+    DEBUG_PRINTLN(F("**** EEPROM Empty, loading Default configuration ****"));
+    ConfigDefault(alarmConfig);
+    ConfigToEEPROM(alarmConfig);
+  }
+  DEBUG_PRINT(alarmConfig.MemCheck[0]);
+  DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
+
+  ConfigStringCopy(alarmConfig, HTMLConfig, true);
+
+  ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
+  DEBUG_PRINTLN(F("Wifi Conectado")); 
+  DelayYield(WIFI_DURATION_MS);         //I need to stop execution here to give time to connect to the AP, because following code brakes the WIFI somehow!!!! **********
+
   //PARA ASIGNAR LA FUNCIÓN ADECUADA A CADA PIN (ESTÁN MULTIPLEXADOS, VER EXCEL)
   PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
   //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_GPIO1);
@@ -393,57 +435,12 @@ void setup() {
   //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
   pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP); //  INPUT_PULLUP *******************  to read SIM800 RING, later will be set temporarily as output to reset SIM800
 
-  #ifdef DEBUG
-    Serial.begin(DEBUGbaudrate);
-    //AGREGADO:
-    /*while(!Serial)  ***************************************************
-    {
-      yield();
-    }  */
-    DEBUG_PRINTLN();
-    DEBUG_PRINT(F("\nReset reason = "));
-    String resetCause = ESP.getResetReason();
-    DEBUG_PRINTLN(resetCause);
-  #endif
-
-  //Initialize config if EEPROM is empty
-  DEBUG_PRINT(F("\nalarmConfig Size= "));
-  DEBUG_PRINTLN(sizeof(alarmConfig));
-
-  /*smsStatus = "";
-  senderNumber="";
-  receivedDate="";
-  msg="";*/
   Sim800_Connect();
   DEBUG_PRINTLN(F("**** Conectado ****"));
-  //startT = millis();
-
-  //Initialize EEPROM and read config
-  DEBUG_PRINTLN(F("**** Reading EEPROM ****"));
-  EEPROM.begin(sizeof(alarmConfig));
-  EEPROM.get(0, alarmConfig);
-  yield();
-
-  DEBUG_PRINT(MEMCHECK[0]);
-  DEBUG_PRINTLN(MEMCHECK[1]);
-  DEBUG_PRINT(alarmConfig.MemCheck[0]);
-  DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
-  if(alarmConfig.MemCheck[0] != MEMCHECK[0] || alarmConfig.MemCheck[1] != MEMCHECK[1]){  //EEPROM empty
-    DEBUG_PRINTLN(F("**** EEPROM Empty, loading Default configuration ****"));
-    ConfigDefault(alarmConfig);
-    ConfigToEEPROM(alarmConfig);
-  }
-  DEBUG_PRINT(alarmConfig.MemCheck[0]);
-  DEBUG_PRINTLN(alarmConfig.MemCheck[1]);
-
-  ConfigStringCopy(alarmConfig, HTMLConfig, true);
-
-  ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config   ****************************************
-  DEBUG_PRINTLN(F("Wifi Conectado"));
 
   //out = new AudioOutputI2S();
   out = new AudioOutputI2SNoDAC();
-  out->begin();
+  out->begin();        //               ***************************************************************************************
   DEBUG_PRINTLN(F("Text to speech iniciado"));
 
   AlarmDisarm();  //initialize states
@@ -455,7 +452,7 @@ void loop() {
 
   //if (digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN)) == LOW)
   //  DEBUG_PRINTLN(F("RINGGGGGG"));
-
+  //yield();
   AlarmLoop();
 
   //wake sim800 and read messages
@@ -501,9 +498,11 @@ void loop() {
   }
 
   //Wifi configuration at startup preventing to sleep
-  if (ESP_WIFI && ((RTCmillis() - WIFI_TOMEOUT_MILLIS) > (uint32_t)WIFI_DURATION_MS)){
-    DEBUG_PRINTLN(F("Wifi Timeout"));
-    ESP_WIFI = false;
+  if (ESP_WIFI){
+    if (((RTCmillis() - WIFI_TOMEOUT_MILLIS) > (uint32_t)WIFI_DURATION_MS)){
+      DEBUG_PRINTLN(F("Wifi Timeout"));
+      ESP_WIFI = false;
+    }
   }
 
   //Going to sleep
@@ -560,18 +559,28 @@ void AlarmLoop()
 
     ReadyToArm = Read_Zones_State();
 
-    SIREN_FORCED[1] = !SIREN_FORCED[1]; //*****************************************************
+    //SIREN_FORCED[1] = true; // !SIREN_FORCED[1]; //*****************************************************
+    //DEBUG_PRINTLN(F("READING ZONES"));
 
     //write outputs:
     for (int i=0; i < SIZEOF_SIREN; i++){
-      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){
+      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){ // && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis)
         digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
-        if ((lastReadMillis - ESP_FIRED_MILLIS) > alarmConfig.Siren[i].MaxDurationSecs)
+        /*if (i==1){
+          DEBUG_PRINTLN(F("SIREN 1 ") + String(SIREN_DEF[i]));
+          digitalWrite(D4, LOW);
+        }*/
+        if (ESP_FIRED && ((lastReadMillis - ESP_FIRED_MILLIS)/1000 > (alarmConfig.Siren[i].MaxDurationSecs)))
           SIREN_TIMEOUT[i] = true;
       }
       else{
         //pinMode(GPIO_ID_PIN(SIREN_PIN[i]), INPUT);  //************************************************************
         digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+        /*if (i==1){
+          DEBUG_PRINTLN(F("SIREN 0 ") + String(SIREN_DEF[i]));
+          pinMode(D4, OUTPUT);
+          digitalWrite(D4, HIGH);
+        }*/
       }
     }
   }
@@ -579,8 +588,10 @@ void AlarmLoop()
 
 bool SirenOnPeriod(int i, uint32_t ms) //Determines if the siren has to be on or off according to pulse / pause
 {
-  uint32_t r = (ms - ESP_FIRED_MILLIS) % (alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs);
-  if (r <= alarmConfig.Siren[i].PulseSecs){
+  uint32_t r = ((ms - ESP_FIRED_MILLIS)/100) % ((alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs)*10);
+  DEBUG_PRINTLN(String(r));
+  DEBUG_FLUSH;
+  if (r <= (alarmConfig.Siren[i].PulseSecs*10)){
     return true;
   }
   else{
@@ -780,11 +791,14 @@ void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
 void ConfigWifi(){
   DEBUG_PRINT(F("Setting AP (Access Point)…"));
   //set-up the custom IP address ***** ESTO QUIZAS NO HAGA FALTA
-  //WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_AP);  //WIFI_AP_STA AP and Station
+  //delay(10);
+  //DelayYield(500);
   //WiFi.softAPConfig(webserver_IP, webserver_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00  
-  WiFi.softAP(AP_SSID, AP_PASS);  //Remove the password parameter, if you want the AP (Access Point) to be open
+  bool res = WiFi.softAP(AP_SSID, AP_PASS);  //Remove the password parameter, if you want the AP (Access Point) to be open
   DelayYield(100);
 
+  DEBUG_PRINTLN("Wifi result: " + String(res?"OK!":"FAILED!")); //***********************************************************
   //IPAddress IP = ;
   DEBUG_PRINT(F("Soft AP IP address: "));
   DEBUG_PRINTLN(WiFi.softAPIP());
