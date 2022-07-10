@@ -492,7 +492,7 @@ void loop() {
   }
 
   //Auto Alarm Arm
-  if (ESP_FIRED && (RTCmillis() - ESP_FIRED_MILLIS > alarmConfig.AutoArmDelaySecs)){
+  if (ESP_FIRED && (RTCmillis() - ESP_FIRED_MILLIS > 1000*(uint32_t)alarmConfig.AutoArmDelaySecs)){
     if (ReadyToArm)
       AlarmReArm();
   }
@@ -575,6 +575,7 @@ void AlarmLoop()
           DEBUG_PRINTLN("TIMEOUT SIRENA!!!, esp_fired millis " + String(ESP_FIRED_MILLIS));
           DEBUG_PRINTLN("TIMEOUT SIRENA!!!, lastReadMillis " + String(lastReadMillis));
           DEBUG_FLUSH;
+          DelayYield(10000);
         }
       }
       else{
