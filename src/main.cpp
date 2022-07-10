@@ -555,9 +555,8 @@ void AlarmLoop()
   Read_Ring_State();
 
   if (RTCmillis() - lastReadMillis > (uint32_t)ESP_ZONES_READ_MS){
-    lastReadMillis = RTCmillis();
-
     ReadyToArm = Read_Zones_State();
+    lastReadMillis = RTCmillis();     //this has to be after Read_Zones_State, otherwise could be that lastReadMillis < ESP_FIRED_MILLIS
 
     //SIREN_FORCED[1] = true; // !SIREN_FORCED[1]; //*****************************************************
     //DEBUG_PRINTLN(F("READING ZONES"));
@@ -570,8 +569,13 @@ void AlarmLoop()
           DEBUG_PRINTLN(F("SIREN 1 ") + String(SIREN_DEF[i]));
           digitalWrite(D4, LOW);
         }*/
-        if (ESP_FIRED && ((lastReadMillis - ESP_FIRED_MILLIS)/1000 > (alarmConfig.Siren[i].MaxDurationSecs)))
+        if (ESP_FIRED && (lastReadMillis > ESP_FIRED_MILLIS) && ((lastReadMillis - ESP_FIRED_MILLIS) > (1000*(uint32_t)alarmConfig.Siren[i].MaxDurationSecs))){
           SIREN_TIMEOUT[i] = true;
+          DEBUG_PRINTLN("TIMEOUT SIRENA!!!, tiempo max " + String(alarmConfig.Siren[i].MaxDurationSecs));
+          DEBUG_PRINTLN("TIMEOUT SIRENA!!!, esp_fired millis " + String(ESP_FIRED_MILLIS));
+          DEBUG_PRINTLN("TIMEOUT SIRENA!!!, lastReadMillis " + String(lastReadMillis));
+          DEBUG_FLUSH;
+        }
       }
       else{
         //pinMode(GPIO_ID_PIN(SIREN_PIN[i]), INPUT);  //************************************************************
@@ -588,10 +592,10 @@ void AlarmLoop()
 
 bool SirenOnPeriod(int i, uint32_t ms) //Determines if the siren has to be on or off according to pulse / pause
 {
-  uint32_t r = ((ms - ESP_FIRED_MILLIS)/100) % ((alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs)*10);
+  uint32_t r = (ms - ESP_FIRED_MILLIS) % (1000*(uint32_t)(alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs));
   DEBUG_PRINTLN(String(r));
   DEBUG_FLUSH;
-  if (r <= (alarmConfig.Siren[i].PulseSecs*10)){
+  if (r <= (1000*(uint32_t)alarmConfig.Siren[i].PulseSecs)){
     return true;
   }
   else{
