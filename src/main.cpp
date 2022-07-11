@@ -502,11 +502,7 @@ void loop() {
       ans.trim();
       SmsMessage smsmsg = extractSms(ans);
       doAction(smsmsg.Message, smsmsg.Phone);
-      
       SIM_RINGING = false;
-      //SIM_ONCALL = false;
-      //DTMFs="";
-      //SIM_WAITINGDTMF_ADA = false;
   }
 
   //If too much time in a call or ringing, hang up
@@ -1193,7 +1189,7 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
             DEBUG_PRINTLN("DTMFs Inserted: " + DTMFs);
           }
         }
-        else if(cmd == "+CMTI") //new SMS arrived
+        else if(cmd == "+CMTI") //new SMS arrived **********************************************************
         {
           index = rta.indexOf(",");
           String temp = rta.substring(index + 1, rta.length()); //get newly arrived memory location and store it in temp
@@ -1206,7 +1202,7 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
           SmsMessage smsmsg = extractSms(temp);  //buff + "\n\r" + buff2);
           doAction(smsmsg.Message, smsmsg.Phone);
 
-          SIM_RINGING = false; //**********************************************************************************
+          SIM_RINGING = false;
         }
         //else if(line == "OK"){
         //  DEBUG_PRINTLN("OK DETECTADO");
