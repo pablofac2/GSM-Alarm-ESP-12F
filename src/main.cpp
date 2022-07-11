@@ -35,12 +35,13 @@ Consuming now 7ma on 12v
 #include <ESPAsyncWebServer.h>
 // enter your WiFi configuration below
 
+/*
 //Text to speech:
 #include <ESP8266SAM.h>
 //#include <AudioOutputI2S.h>
 #include <AudioOutputI2SNoDAC.h>
 //AudioOutputI2S *out = NULL;
-AudioOutputI2SNoDAC *out = NULL;
+AudioOutputI2SNoDAC *out = NULL;*/
 
 const char* AP_SSID = "ESP8266_Wifi";  // AP SSID here
 const char* AP_PASS = "123456789";  // AP password here
@@ -358,6 +359,43 @@ bool SirenOnPeriod(int i, uint32_t ms);
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
 
+  //PARA ASIGNAR LA FUNCIÓN ADECUADA A CADA PIN (ESTÁN MULTIPLEXADOS, VER EXCEL)
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_GPIO1);
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_GPIO3);
+  #ifndef DEBUG   //when debuging, D1 and D2 are used to comunicate to SIM800
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
+    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO5_U, FUNC_GPIO5);
+  #endif
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_CLK_U, FUNC_GPIO6);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA0_U, FUNC_GPIO7);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA1_U, FUNC_GPIO8);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA2_U, FUNC_GPIO9);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA3_U, FUNC_GPIO10);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_SD_CMD_U, FUNC_GPIO11);
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDI_U, FUNC_GPIO12); //Use	MTDI	pin	as	GPIO12.
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTCK_U, FUNC_GPIO13); //Use	MTCK	pin	as	GPIO13.
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTMS_U, FUNC_GPIO14); //Use	MTMS	pin	as	GPIO14.
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_GPIO15); //Use	MTDO	pin	as	GPIO15.
+
+  for (int i = 0; i < SIZEOF_ZONE; i++){
+    GPIO_DIS_OUTPUT(GPIO_ID_PIN(ZONE_PIN[i]));    //Configura la pata como entrada, traido de Sleep_Forced
+    pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);  //INPUT_PULLUP *******************
+    ZONE_DISABLED[i] = false;
+    ZONE_COUNT[i] = 0;
+    ZONE_TRIGGERED[i] = false;
+  }
+
+  for (int i = 0; i < SIZEOF_SIREN; i++){
+    pinMode(GPIO_ID_PIN(SIREN_PIN[i]), OUTPUT);
+    digitalWrite(GPIO_ID_PIN(SIREN_PIN[i]), SIREN_DEF[i]);
+    SIREN_FORCED[i] = false;
+  }
+  //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
+  pinMode(SIM800_RING_RESET_PIN, INPUT); //Do not use pullup to let LOW go really low.  INPUT_PULLUP *******************  to read SIM800 RING, later will be set temporarily as output to reset SIM800
+
+
   #ifdef DEBUG
     Serial.begin(DEBUGbaudrate);
     //AGREGADO:
@@ -399,50 +437,21 @@ void setup() {
   DEBUG_PRINTLN(F("Wifi Conectado")); 
   DelayYield(WIFI_DURATION_MS);         //I need to stop execution here to give time to connect to the AP, because following code brakes the WIFI somehow!!!! **********
 
-  //PARA ASIGNAR LA FUNCIÓN ADECUADA A CADA PIN (ESTÁN MULTIPLEXADOS, VER EXCEL)
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_GPIO1);
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_GPIO3);
-  #ifndef DEBUG   //when debuging, D1 and D2 are used to comunicate to SIM800
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO5_U, FUNC_GPIO5);
-  #endif
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_CLK_U, FUNC_GPIO6);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA0_U, FUNC_GPIO7);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA1_U, FUNC_GPIO8);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA2_U, FUNC_GPIO9);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA3_U, FUNC_GPIO10);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_SD_CMD_U, FUNC_GPIO11);
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDI_U, FUNC_GPIO12); //Use	MTDI	pin	as	GPIO12.
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTCK_U, FUNC_GPIO13); //Use	MTCK	pin	as	GPIO13.
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTMS_U, FUNC_GPIO14); //Use	MTMS	pin	as	GPIO14.
-  PIN_FUNC_SELECT(PERIPHS_IO_MUX_MTDO_U, FUNC_GPIO15); //Use	MTDO	pin	as	GPIO15.
 
-  for (int i = 0; i < SIZEOF_ZONE; i++){
-    GPIO_DIS_OUTPUT(GPIO_ID_PIN(ZONE_PIN[i]));    //Configura la pata como entrada, traido de Sleep_Forced
-    pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);  //INPUT_PULLUP *******************
-    ZONE_DISABLED[i] = false;
-    ZONE_COUNT[i] = 0;
-    ZONE_TRIGGERED[i] = false;
-  }
 
-  for (int i = 0; i < SIZEOF_SIREN; i++){
-    pinMode(GPIO_ID_PIN(SIREN_PIN[i]), OUTPUT);
-    digitalWrite(GPIO_ID_PIN(SIREN_PIN[i]), SIREN_DEF[i]);
-    SIREN_FORCED[i] = false;
-  }
-  //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
-  pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP); //  INPUT_PULLUP *******************  to read SIM800 RING, later will be set temporarily as output to reset SIM800
+//DEFINICION IOS
+
+
+
 
   Sim800_Connect();
   DEBUG_PRINTLN(F("**** Conectado ****"));
-
+/*
   //out = new AudioOutputI2S();
   out = new AudioOutputI2SNoDAC();
   out->begin();        //               ***************************************************************************************
   DEBUG_PRINTLN(F("Text to speech iniciado"));
-
+*/
   AlarmDisarm();  //initialize states
 }
 
@@ -483,8 +492,23 @@ void loop() {
 
   //BlinkLED();
 
+  if (!SIM_ONCALL && SIM_RINGING && (RTCmillis() - SIM_ONCALLMILLIS) > (uint32_t)5000){ //10secs to give some time not sleeping to read incoming SMS if the case
+      //Is there some sms that I missed?
+      String ans = Sim800_ReadCommand(F("AT+CMGL=\"REC UNREAD\""));
+      int i = ans.indexOf(","); //take out +CMGL sms index number (which doesn't come with +CMGR command)
+      ans = ans.substring(i+1);
+      ans.trim();
+      SmsMessage smsmsg = extractSms(ans);
+      doAction(smsmsg.Message, smsmsg.Phone);
+      
+      SIM_RINGING = false;
+      //SIM_ONCALL = false;
+      //DTMFs="";
+      //SIM_WAITINGDTMF_ADA = false;
+  }
+
   //If too much time in a call or ringing, hang up
-  if ((SIM_RINGING || SIM_ONCALL) && (RTCmillis() - SIM_ONCALLMILLIS) > SIM800_MAXCALLMILLIS){
+  if ((SIM_RINGING || SIM_ONCALL) && (RTCmillis() - SIM_ONCALLMILLIS) > (uint32_t)SIM800_MAXCALLMILLIS){
     Sim800_WriteCommand(F("ATH"));//hang up
     SIM_ONCALL = false;
     SIM_RINGING = false;
@@ -558,12 +582,13 @@ void AlarmLoop()
     ReadyToArm = Read_Zones_State();
     lastReadMillis = RTCmillis();     //this has to be after Read_Zones_State, otherwise could be that lastReadMillis < ESP_FIRED_MILLIS
 
-    //SIREN_FORCED[1] = true; // !SIREN_FORCED[1]; //*****************************************************
+    //SIREN_FORCED[1] = !SIREN_FORCED[1]; //*****************************************************
     //DEBUG_PRINTLN(F("READING ZONES"));
 
     //write outputs:
     for (int i=0; i < SIZEOF_SIREN; i++){
       if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){ // && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis)
+        //pinMode(SIREN_PIN[i], OUTPUT);
         digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
         /*if (i==1){
           DEBUG_PRINTLN(F("SIREN 1 ") + String(SIREN_DEF[i]));
@@ -1127,7 +1152,7 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
             if (!SIM_WAITINGDTMF_ADA){
               SIM_WAITINGDTMF_ADA = true;
               DEBUG_PRINTLN(F("Awaiting Arm / Disarm command from DTMF"));
-              ESP8266SAM *sam = new ESP8266SAM;
+              /*ESP8266SAM *sam = new ESP8266SAM;
               String text;
               text = "Alarm is Armed " + String(ESP_ARMED?"1":"0");
               text += ", Fired " + String(ESP_FIRED?"1":"0");
@@ -1137,27 +1162,27 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
               sam->Say(out, "Type 1 to Arm");
               delay(500);
               sam->Say(out, "Type 2 to DisArm");
-              delete sam;
+              delete sam;*/
             }
             else{
               if (rta == "1"){  //ARM
                 AlarmArm();
-                ESP8266SAM *sam = new ESP8266SAM;
+                /*ESP8266SAM *sam = new ESP8266SAM;
                 sam->Say(out, "ALARM IS ARMED");
                 delay(500);
                 sam->Say(out, "ALARM IS ARMED");
-                delete sam;
+                delete sam;*/
                 //sim800.println(F("AT+CLDTMF=10,\"1,5,1\""));
                 //sim800.flush();
                 //delay(120);
               }
               else if (rta == "2"){             //DISARM
                 AlarmDisarm();
-                ESP8266SAM *sam = new ESP8266SAM;
+                /*ESP8266SAM *sam = new ESP8266SAM;
                 sam->Say(out, "ALARM IS DISARMED");
                 delay(500);
                 sam->Say(out, "ALARM IS DISARMED");
-                delete sam;
+                delete sam;*/
               }
             }
           }
@@ -1344,7 +1369,7 @@ void Sim800_HardReset(){
   pinMode(SIM800_RING_RESET_PIN, OUTPUT);
   digitalWrite(SIM800_RING_RESET_PIN, LOW);
   delay(150);                                     //T reset pull down has to be > 105ms
-  pinMode(SIM800_RING_RESET_PIN, INPUT_PULLUP);
+  pinMode(SIM800_RING_RESET_PIN, INPUT);  //DO NOT USE INPUT_PULLUP!!!!!
   Sim800_Connect();
 }
 
@@ -1441,6 +1466,17 @@ SmsMessage extractSms(String buff)  //+CMGR: <stat>,<fo>,<ct>[,<pid>[,<mn>][,<da
   //
   //OK
 
+  //If it comes from CMGL, buff has to be removed the sms index
+  //AT+CMGL="ALL"
+  //+CMGL: 1,"REC UNREAD","+31628870634",,"11/01/09,10:26:26+04"
+  //This is text message 1
+  //+CMGL: 2,"REC UNREAD","+31628870634",,"11/01/09,10:26:49+04"
+  //This is text message 2
+  //OK
+
+  //AT+CMGD=1 delete message index 1
+  //OK
+
   //unsigned int index;
   uint8_t i;
   SmsMessage smsmsg;
@@ -1489,7 +1525,7 @@ void doAction(String msg, String phone){
   uint8_t z;
   if(msg == "s"){
     #ifdef DEBUG
-      SmsReponse(AlarmStatusText(), phone, false);
+      SmsReponse(AlarmStatusText(), phone, true);//******false ***************************************************
     #else
       SmsReponse(AlarmStatusText(), phone, true);
     #endif
@@ -1761,6 +1797,7 @@ void Read_Ring_State(){
   if (alarmConfig.Caller.GSMEnabled){
     int s = digitalRead(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  //SMS RING pulse is only 120ms
     if (!SIM_RINGING && s == LOW){
+      //SIREN_FORCED[1] = !SIREN_FORCED[1]; //*****************************************************
       SIM_RINGING = true;
       //SIM_ONCALL = true;
       SIM_ONCALLMILLIS = RTCmillis();
@@ -1769,14 +1806,16 @@ void Read_Ring_State(){
       DEBUG_PRINTLN("From Sim800 RI PIN: RINGING");
       //delay(2000);  //BORRAR ****************************************
     }
-    else if (SIM_RINGING && s == HIGH && (RTCmillis() - SIM_ONCALLMILLIS) > 10000) { //10secs to give some wime not sleeping to read incoming SMS if the case
+    /*else if (!SIM_ONCALL && SIM_RINGING && s == HIGH && (RTCmillis() - SIM_ONCALLMILLIS) > (uint32_t)10000) { //10secs to give some time not sleeping to read incoming SMS if the case
+      
+      //Is there some sms that I missed?
       SIM_RINGING = false;
       //SIM_ONCALL = false;
       //DTMFs="";
       //SIM_WAITINGDTMF_ADA = false;
       //DEBUG_PRINTLN("From Sim800 RI PIN: CALL ENDED");
       //delay(2000);  //BORRAR ****************************************
-    }
+    }*/
   } 
 }
 

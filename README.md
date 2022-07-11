@@ -36,6 +36,7 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 
 ## Pending
 
+- New siren property to emit a beep when arming or disarming
 - Add AutoReArmDelaySecs (when the alarm was fired and not rearmed manually and the zones are not activated)
 - on AlarmLoop() test if it was read too recently, skip this read
 - On wifi a text box to send sms wo sending sms
