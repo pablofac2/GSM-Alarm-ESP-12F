@@ -276,7 +276,7 @@ bool ReadyToArm = false;
   #define rxPin D1 //D1 = GPIO5  al tx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
   #define txPin D2 //D2 = GPIO4  al rx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
   SoftwareSerial sim800(rxPin,txPin);
-  const uint8_t ZONE_PIN[SIZEOF_ZONE] = {TX, D5, D5, D6, D7}; //{D1, D2, D5, D6, D7}; //RX needs a 200ohm resistor to ground to be 0 as INPUT, TX is ok with 1kohm resitor. Use TX as input and RX as output
+  const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D5, D5, D5, D6, D7}; //{TX, D1, D2, D5, D6, D7}; //RX needs a 200ohm resistor to ground to be 0 as INPUT, TX is ok with 1kohm resitor. Use TX as input and RX as output
 #endif
 bool ZONE_DISABLED[SIZEOF_ZONE]; //if the zone has auto disable function enabled, this array will mask them.
 uint8_t ZONE_COUNT[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
@@ -290,7 +290,7 @@ uint32_t ZONE_FIREDELAY_MILLIS[SIZEOF_ZONE]; //Alarm fired delay millis start
 
 #define SIM800_RING_RESET_PIN D3    //input and output pin, used to reset the sim800
 const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};// {D0, D4, D8, RX}; {RX, D4, TX}; // {D0, D4, D8};  RX and TX can work ok as OUTPUTS!!! ****************************************************
-const uint8_t SIREN_DEF[SIZEOF_SIREN] = {LOW, HIGH, LOW}; // {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW ****************
+const uint8_t SIREN_DEF[SIZEOF_SIREN] = {HIGH, HIGH, LOW}; // {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW ****************
 bool SIREN_FORCED[SIZEOF_SIREN]; //if forced, the output status will be overriden to the oposite of SIREN_DEF despite the alarm status.
 bool SIREN_DISABLED[SIZEOF_SIREN];
 bool SIREN_TIMEOUT[SIZEOF_SIREN];
