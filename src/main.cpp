@@ -256,11 +256,11 @@ bool ReadyToArm = false;
 //ESP8266 NodeMCU Wemos D1 Mini pinout:
 // D0/GPIO16 (no interrupts to wake up), D1/GPIO5, D2/GPIO4, D3/GPIO0, D4/GPIO2 (built-in LED), D6/GPIO12, D7/GPIO13
 
-#define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
+//#define DEBUG  // prints WiFi connection info to serial, uncomment if you want WiFi messages
 #ifdef DEBUG
-  #define DEBUG_PRINTLN(x) //Serial.println(x)  ************************************
-  #define DEBUG_PRINT(x) //Serial.print(x)    *****************************************
-  #define DEBUG_FLUSH //Serial.flush()        *****************************************
+  #define DEBUG_PRINTLN(x) Serial.println(x)  //************************************
+  #define DEBUG_PRINT(x) Serial.print(x)    //*****************************************
+  #define DEBUG_FLUSH Serial.flush()       // *****************************************
   #include <SoftwareSerial.h>
   #define rxPin D1 //D1 = GPIO5  al tx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
   #define txPin D2 //D2 = GPIO4  al rx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
@@ -270,8 +270,13 @@ bool ReadyToArm = false;
   #define DEBUG_PRINTLN(x)
   #define DEBUG_PRINT(x)
   #define DEBUG_FLUSH
-  HardwareSerial sim800(UART0);
-  const uint8_t ZONE_PIN[SIZEOF_ZONE] = {D5, D5, D5, D6, D7}; //{D1, D2, D5, D6, D7};
+  //auto& sim800 = Serial;  //begin in Sim800_Connect
+  //HardwareSerial sim800(UART0);
+  #include <SoftwareSerial.h>
+  #define rxPin D1 //D1 = GPIO5  al tx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
+  #define txPin D2 //D2 = GPIO4  al rx del SIM800   WHEN CHANGING THIS Dx, ALSO CHANGE "PIN_FUNC_SELECT" ON Setup().
+  SoftwareSerial sim800(rxPin,txPin);
+  const uint8_t ZONE_PIN[SIZEOF_ZONE] = {TX, D5, D5, D6, D7}; //{D1, D2, D5, D6, D7}; //RX needs a 200ohm resistor to ground to be 0 as INPUT, TX is ok with 1kohm resitor. Use TX as input and RX as output
 #endif
 bool ZONE_DISABLED[SIZEOF_ZONE]; //if the zone has auto disable function enabled, this array will mask them.
 uint8_t ZONE_COUNT[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
@@ -284,8 +289,8 @@ uint32_t ZONE_FIREDELAY_MILLIS[SIZEOF_ZONE]; //Alarm fired delay millis start
 
 
 #define SIM800_RING_RESET_PIN D3    //input and output pin, used to reset the sim800
-const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};
-const uint8_t SIREN_DEF[SIZEOF_SIREN] = {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW
+const uint8_t SIREN_PIN[SIZEOF_SIREN] = {D0, D4, D8};// {D0, D4, D8, RX}; {RX, D4, TX}; // {D0, D4, D8};  RX and TX can work ok as OUTPUTS!!! ****************************************************
+const uint8_t SIREN_DEF[SIZEOF_SIREN] = {LOW, HIGH, LOW}; // {HIGH, HIGH, LOW}; //D0 D4 normal HIGH, D8 normal LOW ****************
 bool SIREN_FORCED[SIZEOF_SIREN]; //if forced, the output status will be overriden to the oposite of SIREN_DEF despite the alarm status.
 bool SIREN_DISABLED[SIZEOF_SIREN];
 bool SIREN_TIMEOUT[SIZEOF_SIREN];
@@ -362,12 +367,14 @@ void setup() {
 
   //PARA ASIGNAR LA FUNCIÓN ADECUADA A CADA PIN (ESTÁN MULTIPLEXADOS, VER EXCEL)
   PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_GPIO1);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_U0TXD);
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0TXD_U, FUNC_GPIO1);
   PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
-  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_GPIO3);
+  //PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_U0RXD);
+  PIN_FUNC_SELECT(PERIPHS_IO_MUX_U0RXD_U, FUNC_GPIO3);
   #ifndef DEBUG   //when debuging, D1 and D2 are used to comunicate to SIM800
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO5_U, FUNC_GPIO5);
+//    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO4_U, FUNC_GPIO4);****************************************
+//    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO5_U, FUNC_GPIO5);******************************************
   #endif
   //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_CLK_U, FUNC_GPIO6);
   //PIN_FUNC_SELECT(PERIPHS_IO_MUX_SD_DATA0_U, FUNC_GPIO7);
@@ -398,9 +405,8 @@ void setup() {
   //GPIO_DIS_OUTPUT(GPIO_ID_PIN(SIM800_RING_RESET_PIN));  because it is input and output
   pinMode(SIM800_RING_RESET_PIN, INPUT); //Do not use pullup to let LOW go really low.  INPUT_PULLUP *******************  to read SIM800 RING, later will be set temporarily as output to reset SIM800
 
-  Serial.begin(DEBUGbaudrate);
   #ifdef DEBUG
-    //AGREGADO:
+    Serial.begin(DEBUGbaudrate);  //The lowest consumption is when NOT doing Serial.Begin();
     /*while(!Serial)  ***************************************************
     {
       yield();
@@ -409,6 +415,8 @@ void setup() {
     DEBUG_PRINT(F("\nReset reason = "));
     String resetCause = ESP.getResetReason();
     DEBUG_PRINTLN(resetCause);
+  #else
+    //Serial.begin(DEBUGbaudrate);//The lowest consumption is when NOT doing Serial.Begin(); **************************************
   #endif
 
   //Initialize config if EEPROM is empty
@@ -438,13 +446,6 @@ void setup() {
   ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
   DEBUG_PRINTLN(F("Wifi Conectado")); 
   DelayYield(WIFI_DURATION_MS);         //I need to stop execution here to give time to connect to the AP, because following code brakes the WIFI somehow!!!! **********
-
-
-
-//DEFINICION IOS
-
-
-
 
   Sim800_Connect();
   DEBUG_PRINTLN(F("**** Conectado ****"));
@@ -535,7 +536,7 @@ void loop() {
     }
     if (!ESP_READYTOSLEEP)
       Sleep_Prepare();
-    Sleep_Forced();
+    Sleep_Forced();   //      *****************************
   }
 
   /*//Configuring the ESP to be able to LIGHT SLEEP:
@@ -1732,8 +1733,10 @@ void Sleep_Forced() {
 
 void WakeUpCallBackFunction()
 {
-  Serial.println();
+  Serial.println(); //The lowest consumption is when NOT doing Serial.Begin();
   Serial.flush();
+  //sim800.println();
+  //sim800.flush();
   //DEBUG_PRINTLN(F("Woke Up - CallBack Function executed at ms: ") + String(RTCmillis()));
   //DEBUG_FLUSH;
   //AlarmLoop();
