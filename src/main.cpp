@@ -121,10 +121,10 @@ String HTMLConfig = "";
 #define ESP_BLINKINGOFFFIRED_MS 500  //blinking led off time
 #define ESP_ARMBEEP_MS 500  //Siren beep lenght when arming (1 beep) / disarming (2 beeps)
 
-#define ESP_VOLTAGE_MIN 11      //minimum voltage baterry to trigger the alarm
-#define ESP_VOLTAGE_RESET 12.5  //voltage baterry to reset the battery alarm
-#define ESP_VOLTAGE_MS 30000  //frequency to read the battery voltage
-unsigned long ESP_VOLTAGE_READMILLIS = 0; //last voltage read millis
+//#define ESP_VOLTAGE_MIN 11      //minimum voltage baterry to trigger the alarm
+//#define ESP_VOLTAGE_RESET 12.5  //voltage baterry to reset the battery alarm
+//#define ESP_VOLTAGE_MS 30000  //frequency to read the battery voltage
+//unsigned long ESP_VOLTAGE_READMILLIS = 0; //last voltage read millis
 
 #define SIZEOF_NAME 10    //util characters (witout termination char)
 #define SIZEOF_PHONE 15   //util characters (witout termination char)
@@ -494,17 +494,6 @@ void loop() {
   if (!ESP_FIRED)
     espFiredPrev = false;
 
-  //Check battery voltage
-  if (!ESP_LOWBATTERY && readVoltage() < alarmConfig.BatteryAlertV){
-    DEBUG_PRINTLN(F("Low battery detected, calling and texting..."));
-    ESP_LOWBATTERY = true;
-    BatteryLowSmsAdvise();
-    BatteryLowCallAdvise();
-  }
-  else if (ESP_LOWBATTERY && readVoltage() > alarmConfig.BatteryResetV){
-    ESP_LOWBATTERY = false;
-  }
-
   if (ESP_ARMED)
     BlinkLED();
 
@@ -622,6 +611,18 @@ void AlarmLoop()
         }*/
       }
     }
+
+    //Check battery voltage
+    if (!ESP_LOWBATTERY && readVoltage() < alarmConfig.BatteryAlertV){
+      DEBUG_PRINTLN(F("Low battery detected, calling and texting..."));
+      ESP_LOWBATTERY = true;
+      BatteryLowSmsAdvise();
+      BatteryLowCallAdvise();
+    }
+    else if (ESP_LOWBATTERY && readVoltage() > alarmConfig.BatteryResetV){
+      ESP_LOWBATTERY = false;
+    }
+
   }
 }
 
