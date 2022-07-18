@@ -49,7 +49,12 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 
 ## Pending
 
-
+- TriggerNC propertie of zones not working
+- BatteryLow properties:
+-   Min Battery
+-   Max Battery
+-   SMS
+-   CALL
 - New siren properties:
 -   Emit a beep when arming or disarming
 -   To be a flashing LED when the alarm is armed
@@ -57,7 +62,7 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 - New Zones properties:
 -   Push button (to arm/disarm/fire alarm)
 - New Alarm Properties:
--   Push button Activation delay
+-   Activation delay
 - Add AutoReArmDelaySecs (when the alarm was fired and not rearmed manually and the zones are not activated)
 - To be able to modify properties sending sms
 - On wifi a text box to send sms wo sending sms

@@ -119,6 +119,7 @@ String HTMLConfig = "";
 #define ESP_BLINKINGOFF_MS 1000  //blinking led off time
 #define ESP_BLINKINGONFIRED_MS 200    //blinking led on time
 #define ESP_BLINKINGOFFFIRED_MS 500  //blinking led off time
+#define ESP_ARMBEEP_MS 500  //Siren beep lenght when arming (1 beep) / disarming (2 beeps)
 
 #define ESP_VOLTAGE_MIN 11      //minimum voltage baterry to trigger the alarm
 #define ESP_VOLTAGE_RESET 12.5  //voltage baterry to reset the battery alarm
@@ -152,17 +153,20 @@ struct propZone { //26      __attribute((__packed__))
   bool Enabled;   //1
   bool AutoDisable; //1
   bool TriggerNC; //1??
+  bool PushButton;
   uint16_t FirstAdviseDurationSecs; //2
   uint16_t FirstAdviseResetSecs;
   uint16_t DelayOnSecs;
-  uint16_t DelayOffSecs;
-  uint16_t MinDurationSecs;
-  uint16_t MaxDurationSecs;
+  //uint16_t DelayOffSecs;
+  //uint16_t MinDurationSecs;
+  //uint16_t MaxDurationSecs;
 };
 struct propSiren {  //19      __attribute((__packed__))
   char Name[SIZEOF_NAME+1];  //11 1 more for the “null-terminated” char
   bool Enabled; //1
   bool Delayed;
+  bool ArmDisarmBeep;
+  bool BlinkIfArmed;
   uint16_t PulseSecs; //2
   uint16_t PauseSecs;
   uint16_t MaxDurationSecs;
@@ -172,20 +176,25 @@ struct phoneNumber {  //14      __attribute((__packed__))
 };
 struct propCaller { //160   __attribute((__packed__))
   bool GSMEnabled;
-  bool CALLOnAlarm;
+  bool CALLOnAlarm; //Alarm Fired
+  bool CALLOnAlert; //Low Battery Alert
   phoneNumber CALLPhone[SIZEOF_CALLPHONE]; //14*3=42
-  bool SMSOnAlarm;
+  bool SMSOnAlarm; //Alarm Fired
+  bool SMSOnAlert; //Low Battery Alert
   phoneNumber SMSPhone[SIZEOF_SMSPHONE];  //42
-  bool CALLAnswer;
+  //bool CALLAnswer;
   bool SMSResponse;
-  bool CALLArmDisarm;
-  phoneNumber CALLArmDisarmPhone[SIZEOF_DISARMPHONE]; //70
+  //bool CALLArmDisarm;
+  //phoneNumber CALLArmDisarmPhone[SIZEOF_DISARMPHONE]; //70
 };
 struct propAlarm {  //361     MEDIDO PACKED:  //  MEDIDO SIN PACKED: 386    __attribute((__packed__))
   char MemCheck[2];
   char AdminPass[SIZEOF_PASS+1];  //5
   char OpPass[SIZEOF_PASS+1]; //5
-  uint16_t AutoArmDelaySecs;  //2
+  uint16_t AutoArmDelaySecs;  //2 Delay to rearm after fired
+  uint16_t LocalArmDelaySecs;  //2 Delay to arm when armed localy
+  uint16_t BatteryAlertV;  //2 Min battery voltage x10 (12.5v is 125)
+  uint16_t BatteryResetV;  //2 Reset battery voltage x10
   propZone Zone[SIZEOF_ZONE]; //5*26 = 130
   propSiren Siren[SIZEOF_SIREN]; //3*19 = 57
   propCaller Caller;  //160
@@ -361,6 +370,8 @@ bool Sim800_UnsolicitedResultCode(String line);
 void BlinkLED();
 void Read_Ring_State();
 bool SirenOnPeriod(int i, uint32_t ms);
+void SirenBeepBeep();
+void SirenBeep();
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -698,17 +709,21 @@ void ConfigDefault(propAlarm &pa){
   temp.toCharArray(pa.AdminPass, temp.length()+1);
   temp = DEFAULT_OPPASS;
   temp.toCharArray(pa.OpPass, temp.length()+1);
-  pa.AutoArmDelaySecs = 28800;  //8hs
+  pa.AutoArmDelaySecs = 3600;  //1hs
+  pa.LocalArmDelaySecs = 20;
+  pa.BatteryAlertV = 120;
+  pa.BatteryResetV = 125;
   for(unsigned int i = 0; i < SIZEOF_ZONE; i++){
     pa.Zone[i].Enabled = true;
     pa.Zone[i].AutoDisable = false;
     pa.Zone[i].DelayOnSecs = 0;
-    pa.Zone[i].DelayOffSecs = 0;
+    //pa.Zone[i].DelayOffSecs = 0;
     pa.Zone[i].FirstAdviseDurationSecs = 0;
     pa.Zone[i].FirstAdviseResetSecs = 0;
-    pa.Zone[i].MinDurationSecs = 0;
-    pa.Zone[i].MaxDurationSecs = 0;
+    //pa.Zone[i].MinDurationSecs = 0;
+    //pa.Zone[i].MaxDurationSecs = 0;
     pa.Zone[i].TriggerNC = true;
+    pa.Zone[i].PushButton = false;
     temp = "Zona" + i;
     temp.trim();
     temp.toCharArray(pa.Zone[i].Name, temp.length()+1); //1 more for the “null-terminated” char
@@ -716,6 +731,8 @@ void ConfigDefault(propAlarm &pa){
   for(unsigned int i = 0; i < SIZEOF_SIREN; i++){
     pa.Siren[i].Enabled = true;
     pa.Siren[i].Delayed = true;
+    pa.Siren[i].ArmDisarmBeep = false;
+    pa.Siren[i].BlinkIfArmed = false;
     pa.Siren[i].MaxDurationSecs = 600;  //10 minutes
     pa.Siren[i].PulseSecs = 2;
     pa.Siren[i].PauseSecs = 0;
@@ -723,32 +740,34 @@ void ConfigDefault(propAlarm &pa){
     temp.trim();
     temp.toCharArray(pa.Siren[i].Name, temp.length()+1);
   }
-  pa.Caller.CALLAnswer = true;
-  pa.Caller.CALLArmDisarm = false;
+  //pa.Caller.CALLAnswer = true;
+  //pa.Caller.CALLArmDisarm = false;
   pa.Caller.CALLOnAlarm = true;
+  pa.Caller.CALLOnAlert = false;
   pa.Caller.GSMEnabled = true;
   pa.Caller.SMSOnAlarm = false;
-  pa.Caller.SMSResponse = true;
-  temp = "1234";
-  for(unsigned int i = 0; i < SIZEOF_DISARMPHONE; i++){
-    temp.toCharArray(pa.Caller.CALLArmDisarmPhone[i].Number, temp.length()+1); //1 more for the “null-terminated” char
-  }
+  pa.Caller.SMSOnAlert = true;
+  pa.Caller.SMSResponse = false;
+  temp = "+54341";
+  //for(unsigned int i = 0; i < SIZEOF_DISARMPHONE; i++){
+  //  temp.toCharArray(pa.Caller.CALLArmDisarmPhone[i].Number, temp.length()+1); //1 more for the “null-terminated” char
+  //}
   for(unsigned int i = 0; i < SIZEOF_CALLPHONE; i++){
     temp.toCharArray(pa.Caller.CALLPhone[i].Number, temp.length()+1);
   }
   for(unsigned int i = 0; i < SIZEOF_SMSPHONE; i++){
     temp.toCharArray(pa.Caller.SMSPhone[i].Number, temp.length()+1);
   }
-  DEBUG_PRINT("-");
-  for(int i = 0; i<SIZEOF_NAME; i++){
-    DEBUG_PRINT(pa.Zone[1].Name[i]);
-  }
-  DEBUG_PRINTLN("-");
-  DEBUG_PRINT("-");
-  for(int i = 0; i<SIZEOF_DISARMPHONE; i++){
-    DEBUG_PRINT(pa.Caller.CALLArmDisarmPhone[0].Number[i]);
-  }
-  DEBUG_PRINTLN("-");
+  //DEBUG_PRINT("-");
+  //for(int i = 0; i<SIZEOF_NAME; i++){
+  //  DEBUG_PRINT(pa.Zone[1].Name[i]);
+  //}
+  //DEBUG_PRINTLN("-");
+  //DEBUG_PRINT("-");
+  //for(int i = 0; i<SIZEOF_DISARMPHONE; i++){
+  //  DEBUG_PRINT(pa.Caller.CALLArmDisarmPhone[0].Number[i]);
+  //}
+  //DEBUG_PRINTLN("-");
   //String variable is char array. You can directly operate on string like a char array:
   //String abc="ABCDEFG";
   //Serial.print(abc[2]); //Prints 'C'
@@ -776,36 +795,44 @@ void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
   String temp;
   if (toString) str="";
   InsertExtractLine("Auto Arm delay secs", str, pa.AutoArmDelaySecs, toString);
+  InsertExtractLine("Local Arm delay secs", str, pa.LocalArmDelaySecs, toString);
+  InsertExtractLine("Battery Alert x10", str, pa.BatteryAlertV, toString);
+  InsertExtractLine("Battery Reset x10", str, pa.BatteryResetV, toString);
   InsertExtractLine("GSM Enabled", str, pa.Caller.GSMEnabled, toString);
   InsertExtractLine("SMS Response", str, pa.Caller.SMSResponse, toString);
   InsertExtractLine("SMS On Alarm", str, pa.Caller.SMSOnAlarm, toString);
+  InsertExtractLine("SMS On Alert", str, pa.Caller.SMSOnAlert, toString);
   for(unsigned int i = 0; i < SIZEOF_SMSPHONE; i++)
     InsertExtractLine("SMS Phone " + String(i), str, pa.Caller.SMSPhone[i].Number, toString);
-  InsertExtractLine("CALL Answer", str, pa.Caller.CALLAnswer, toString);
+  //InsertExtractLine("CALL Answer", str, pa.Caller.CALLAnswer, toString);
   InsertExtractLine("CALL On Alarm", str, pa.Caller.CALLOnAlarm, toString);
+  InsertExtractLine("CALL On Alert", str, pa.Caller.CALLOnAlert, toString);
   for(unsigned int i = 0; i < SIZEOF_CALLPHONE; i++)
     InsertExtractLine("CALL Phone " + String(i), str, pa.Caller.CALLPhone[i].Number, toString);
-  InsertExtractLine("CALL Arm Disarm Enabled", str, pa.Caller.CALLArmDisarm, toString);
-  for(unsigned int i = 0; i < SIZEOF_DISARMPHONE; i++)
-    InsertExtractLine("CALL Arm Disarm " + String(i), str, pa.Caller.CALLArmDisarmPhone[i].Number, toString);
+  //InsertExtractLine("CALL Arm Disarm Enabled", str, pa.Caller.CALLArmDisarm, toString);
+  //for(unsigned int i = 0; i < SIZEOF_DISARMPHONE; i++)
+  //  InsertExtractLine("CALL Arm Disarm " + String(i), str, pa.Caller.CALLArmDisarmPhone[i].Number, toString);
   for(unsigned int i = 0; i < SIZEOF_ZONE; i++){
     temp = "Zone " + String(i);
     InsertExtractLine(temp + " Name", str, pa.Zone[i].Name, toString);
     InsertExtractLine(temp + " Enabled", str, pa.Zone[i].Enabled, toString);
     InsertExtractLine(temp + " Auto Disable", str, pa.Zone[i].AutoDisable, toString);
     InsertExtractLine(temp + " Trigger Normal Closed", str, pa.Zone[i].TriggerNC, toString);
+    InsertExtractLine(temp + " Is Push Button", str, pa.Zone[i].PushButton, toString);
     InsertExtractLine(temp + " First Advise Duration secs", str, pa.Zone[i].FirstAdviseDurationSecs, toString);
     InsertExtractLine(temp + " First Advise Reset secs", str, pa.Zone[i].FirstAdviseResetSecs, toString);
     InsertExtractLine(temp + " Delay On secs", str, pa.Zone[i].DelayOnSecs, toString);
-    InsertExtractLine(temp + " Delay Off secs", str, pa.Zone[i].DelayOffSecs, toString);
-    InsertExtractLine(temp + " Min Duration secs", str, pa.Zone[i].MinDurationSecs, toString);
-    InsertExtractLine(temp + " Max Duration secs", str, pa.Zone[i].MaxDurationSecs, toString);
+    //InsertExtractLine(temp + " Delay Off secs", str, pa.Zone[i].DelayOffSecs, toString);
+    //InsertExtractLine(temp + " Min Duration secs", str, pa.Zone[i].MinDurationSecs, toString);
+    //InsertExtractLine(temp + " Max Duration secs", str, pa.Zone[i].MaxDurationSecs, toString);
   }
   for(unsigned int i = 0; i < SIZEOF_SIREN; i++){
     temp = "Siren " + String(i);
     InsertExtractLine(temp + " Name", str, pa.Siren[i].Name, toString);
     InsertExtractLine(temp + " Enabled", str, pa.Siren[i].Enabled, toString);
     InsertExtractLine(temp + " Delayed", str, pa.Siren[i].Delayed, toString);
+    InsertExtractLine(temp + " Arm Disarm Beep", str, pa.Siren[i].ArmDisarmBeep, toString);
+    InsertExtractLine(temp + " Blink If Armed", str, pa.Siren[i].BlinkIfArmed, toString);
     InsertExtractLine(temp + " Pulse secs", str, pa.Siren[i].PulseSecs, toString);
     InsertExtractLine(temp + " Pause secs", str, pa.Siren[i].PauseSecs, toString);
     InsertExtractLine(temp + " Max Duration secs", str, pa.Siren[i].MaxDurationSecs, toString);
@@ -1292,6 +1319,7 @@ bool Sim800_Connect(){
   /*sim800.println(F("AT+CMGDA=\"DEL ALL\""));                   //Borrar todos los mensajes
   sim800.flush();
   Sim800_checkResponse(500);*/
+  Sim800_WriteCommand(F("AT+CNETLIGHT=0"));                  //turn off net light led
   //DEBUG_PRINTLN(F("Enviando AT+IPR?"));
   String ans = Sim800_ReadCommand(F("AT+IPR?"));
   /*sim800.println(F("AT+IPR?"));                   //Auto Baud Rate Serial Port Configuration (0 is auto)
@@ -1310,7 +1338,6 @@ bool Sim800_Connect(){
     //sim800.flush();
     //delay(120);
   }
-  Sim800_WriteCommand(F("AT+CNETLIGHT=0"));   //turn off net light led
   return true;
 }
 
@@ -1438,6 +1465,7 @@ void AlarmDisarm(){
   for(int i=0; i < SIZEOF_SIREN; i++){
     SIREN_TIMEOUT[i] = false;
   }
+  SirenBeepBeep();
 }
 
 void AlarmFire(){
@@ -1447,6 +1475,7 @@ void AlarmFire(){
 
 void AlarmArm(){
   ESP_ARMED = true;
+  SirenBeep();
 }
 
 void AlarmReArm(){
@@ -1456,6 +1485,25 @@ void AlarmReArm(){
     SIREN_TIMEOUT[i] = false;
     ZONE_FIRSTDELAY[i] = false;
     ZONE_FIREDELAY[i] = false;
+  }
+  SirenBeep();
+}
+
+void SirenBeepBeep(){
+  SirenBeep();
+  DelayYield(ESP_ARMBEEP_MS);
+  SirenBeep();
+}
+void SirenBeep()
+{
+  for(int i=0; i < SIZEOF_SIREN; i++){
+    if (!SIREN_DISABLED[i] && !SIREN_FORCED[i] && alarmConfig.Siren[i].Enabled && alarmConfig.Siren[i].ArmDisarmBeep)
+        digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+  }
+  DelayYield(ESP_ARMBEEP_MS);
+  for(int i=0; i < SIZEOF_SIREN; i++){
+    if (!SIREN_DISABLED[i] && !SIREN_FORCED[i] && alarmConfig.Siren[i].Enabled && alarmConfig.Siren[i].ArmDisarmBeep)
+        digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
   }
 }
 
