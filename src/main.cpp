@@ -1613,14 +1613,16 @@ void doAction(String msg, String phone){
   DEBUG_PRINTLN("Autorized! msg: -" + msg + "-");
   String text;
   uint8_t z;
-  if(msg == "s"){
+  if(msg == "s")
+  {
     #ifdef DEBUG
       SmsReponse(AlarmStatusText(), phone, true);//******false ***************************************************
     #else
       SmsReponse(AlarmStatusText(), phone, true);
     #endif
   }
-  else if(msg == "a"){
+  else if(msg == "a")
+  {
     if (ReadyToArm){
       AlarmArm();
       SmsReponse("Alarm Armed", phone, false);
@@ -1631,11 +1633,22 @@ void doAction(String msg, String phone){
       SmsReponse(text, phone, false);
     }
   }
-  else if(msg == "d"){
+  else if(msg == "d")
+  {
     AlarmDisarm();
     SmsReponse("Alarm Disarmed", phone, false);
   }
-  else if(msg.substring(0,1) == "z"){
+  else if(msg == "f")
+  {
+    AlarmFire();
+    //SmsReponse("Alarm Fired", phone, false);
+  }
+  else if(msg == "h" || msg == "help" || msg == "?")
+  {
+    SmsReponse("s status, a arm, d disarm, f fire, zdZ/zeZ/sdS/seS/sfS Zone/Siren disable/enable/force, pP?/pP: param ask/change", phone, true);
+  }
+  else if(msg.substring(0,1) == "z")
+  {
     msg.remove(0, 1);
     text = msg.substring(0,1);
     if(text == "e" || text == "d"){
@@ -1650,22 +1663,69 @@ void doAction(String msg, String phone){
       }
     }
   }
-  else if(msg.substring(0,1) == "s"){
+  else if (msg.substring(0,1) == "s")
+  {
     msg.remove(0, 1);
     text = msg.substring(0,1);
-    if(text == "e" || text == "d"){
+    if (text == "e" || text == "d" || text == "f"){
       msg.remove(0, 1);
       z = msg.toInt();
       if (z >= 0 && z < SIZEOF_SIREN){
-        SIREN_DISABLED[z] = (text=="e")?false:true;
-        SmsReponse("Siren " + String(z) + ((text=="e")?" Enabled":" Disabled"), phone, false);
+        if (text == "f")
+        {
+          SIREN_DISABLED[z] = false;
+          SIREN_FORCED[z] = true;
+          SmsReponse("Siren " + String(z) + " Forced", phone, false);
+        }
+        else if (text == "e")
+        {
+          SIREN_DISABLED[z] = false;
+          SIREN_FORCED[z] = false;
+          SmsReponse("Siren " + String(z) + " Enabled", phone, false);
+        } else {
+          SIREN_DISABLED[z] = true;
+          SIREN_FORCED[z] = false;
+          SmsReponse("Siren " + String(z) + " Disabled", phone, false);
+        }
+        //  SIREN_DISABLED[z] = (text=="e")?false:true;
+        //  SmsReponse("Siren " + String(z) + ((text=="e")?" Enabled":" Disabled"), phone, false);
+        //}
       }
       else{
         SmsReponse("Invalid Siren " + String(z), phone, false);
       }
     }
   }
-  else if(msg.substring(0,1) == "o"){
+  else if (msg.substring(0,1) == "p")
+  {
+    msg.remove(0, 1);
+    int index = msg.indexOf("?");
+    String prop;
+    String res = "";
+    String stringConfig = "";
+    if (index > 0){
+      prop = msg.substring(0,index);
+      prop.trim();
+      ConfigStringCopy(alarmConfig, stringConfig, true);    //Parse alarmConfig to String
+      InsertExtractLine(prop, stringConfig, res, true);     //Extract the requested property result
+      SmsReponse(res, phone, true);
+    } else {
+      index = msg.indexOf(":");
+      if (index > 0){
+        prop = msg.substring(0,index);
+        prop.trim();
+        msg.remove(0,index+1);
+        msg.trim();
+
+        //ConfigStringCopy(alarmConfig, stringConfig, false);    //Parse String to alarmConfig
+        //ConfigToEEPROM(alarmConfig);                      //Write to EEPROM
+        //ConfigStringCopy(alarmConfig, stringConfig, true);    //Parse alarmConfig to String
+
+
+      }
+    }
+  }
+  /*else if(msg.substring(0,1) == "o"){
     msg.remove(0, 1);
     text = msg.substring(0,1);
     if(text == "1" || text == "0"){
@@ -1679,7 +1739,7 @@ void doAction(String msg, String phone){
         SmsReponse("Invalid Output " + z, phone, false);
       }
     }
-  }
+  }*/
 }
 
 bool SmsReponse(String text, String phone, bool forced){

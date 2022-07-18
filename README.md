@@ -16,18 +16,15 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 - Status request: "XXXXs" where XXXX is the operation password.
 - Arm: "XXXXa" where XXXX is the operation password.
 - Disarm: "XXXXd" where XXXX is the operation password.
-- Zone Disable: "zdZXXXX" where XXXX is the operation password and Z is the zone number.
-- Zone Enable: "zeZXXXX" where XXXX is the operation password and Z is the zone number.
-- Siren Disable: "sdSXXXX" where XXXX is the operation password and S is the siren number.
-- Siren Enable: "seSXXXX" where XXXX is the operation password and S is the siren number.
+- Zone Disable: "XXXXzdZ" where XXXX is the operation password and Z is the zone number.
+- Zone Enable: "XXXXzeZ" where XXXX is the operation password and Z is the zone number.
+- Siren Disable: "XXXXsdS" where XXXX is the operation password and S is the siren number.
+- Siren Enable: "XXXXseS" where XXXX is the operation password and S is the siren number.
+- Siren Forced: "XXXXsfBS" where XXXX is the operation password, B is the state 0 or 1, and S is the siren number.
 - Configuration parameter request: "*?" where * is the parameter description according wifi initial configuration.
 - Configuration parameter set: "*: X" where * is the parameter description according wifi initial configuration, and X is the new value.
-- Message to fire alarm
-- Message to get commands (h, help, ?)
-
-### Remote control of Outputs
-
-- Output status override: "oOX" where O is the output number and Z is the status (0, 1 or empty to exit override).
+- Fire alarm: XXXXf
+- Get commands: XXXXh, XXXXhelp, XXXX?
 
 ### Push button
 
