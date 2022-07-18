@@ -1707,6 +1707,7 @@ void doAction(String msg, String phone){
       prop = msg.substring(0,index);
       prop.trim();
       ConfigStringCopy(alarmConfig, stringConfig, true);    //Parse alarmConfig to String
+      stringConfig.toLowerCase();
       InsertExtractLine(prop, stringConfig, res, true);     //Extract the requested property result
       SmsReponse(res, phone, true);
     } else {
@@ -1716,12 +1717,15 @@ void doAction(String msg, String phone){
         prop.trim();
         msg.remove(0,index+1);
         msg.trim();
-
-        //ConfigStringCopy(alarmConfig, stringConfig, false);    //Parse String to alarmConfig
-        //ConfigToEEPROM(alarmConfig);                      //Write to EEPROM
-        //ConfigStringCopy(alarmConfig, stringConfig, true);    //Parse alarmConfig to String
-
-
+        ConfigStringCopy(alarmConfig, stringConfig, true);    //Parse alarmConfig to String
+        String stringConfigLC = stringConfig;
+        stringConfigLC.toLowerCase();
+        index = stringConfigLC.indexOf(prop);
+        index = stringConfigLC.indexOf(":", index);
+        int j = stringConfigLC.indexOf("\r", index);
+        stringConfig = stringConfig.substring(0, index+1) + msg + stringConfig.substring(j);  //replace de new value into the config string
+        ConfigStringCopy(alarmConfig, stringConfig, false);    //Parse String to alarmConfig
+        ConfigToEEPROM(alarmConfig);                      //Write to EEPROM
       }
     }
   }
