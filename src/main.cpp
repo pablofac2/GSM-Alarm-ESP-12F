@@ -504,7 +504,8 @@ void loop() {
     ESP_LOWBATTERY = false;
   }
 
-  //BlinkLED();
+  if (ESP_ARMED)
+    BlinkLED();
 
   if (!SIM_ONCALL && SIM_RINGING && (RTCmillis() - SIM_ONCALLMILLIS) > (uint32_t)5000){ //10secs to give some time not sleeping to read incoming SMS if the case
       //Is there some sms that I missed?
@@ -636,23 +637,33 @@ bool SirenOnPeriod(int i, uint32_t ms) //Determines if the siren has to be on or
 
 void BlinkLED(){
   static uint32_t lastChangeMillis; //last led change millis
-  static bool ledState = false;
-  uint32_t ms = RTCmillis();
+  static bool ledState[SIZEOF_SIREN];
+  uint32_t ms;
 
-  if (ledState)
+  for (int i = 0; i < SIZEOF_SIREN; i++)
   {
-    if (ms - lastChangeMillis > (ESP_FIRED? ESP_BLINKINGONFIRED_MS : ESP_BLINKINGON_MS)){
-      ledState = false;
-      lastChangeMillis = ms;
-      DEBUG_PRINTLN(F("LED OFF"));
-    }
-  }
-  else
-  {
-    if (ms - lastChangeMillis > (ESP_FIRED? ESP_BLINKINGOFFFIRED_MS : ESP_BLINKINGOFF_MS)){
-      ledState = true;
-      lastChangeMillis = ms;      
-      DEBUG_PRINTLN(F("LED ON"));
+    if (alarmConfig.Siren[i].BlinkIfArmed)
+    {
+      if (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && !SIREN_FORCED[i])
+      {
+        ms = RTCmillis();
+        if (ledState[i])
+        {
+          if (ms - lastChangeMillis > (uint32_t)(ESP_FIRED? ESP_BLINKINGONFIRED_MS : ESP_BLINKINGON_MS)){
+            ledState[i] = false;
+            lastChangeMillis = ms;
+            digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+          }
+        }
+        else
+        {
+          if (ms - lastChangeMillis > (uint32_t)(ESP_FIRED? ESP_BLINKINGOFFFIRED_MS : ESP_BLINKINGOFF_MS)){
+            ledState[i] = true;
+            lastChangeMillis = ms;
+            digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+          }
+        }
+      }
     }
   }
 }
