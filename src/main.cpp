@@ -236,6 +236,8 @@ byte _checkResponse(uint16_t timeout);
 bool ESP_WIFI = true;      //Wifi enabled during start up (120 secs)
 bool ESP_DISARMED = false;  //Alarm disarmed
 bool ESP_ARMED = false;     //Alarm armed
+bool ESP_ARM_DELAY = false;     //Delay to arm locally
+uint32_t ESP_ARM_DELAY_MILLIS;     //Delay to arm locally timer start time
 bool ESP_FIRED = false;     //Alarm fired (siren activated)
 bool ESP_FIRED_DELAY = false; //Alarm fired from a delayed zone
 uint32_t ESP_FIRED_MILLIS;  //Alarm fired millis
@@ -1492,6 +1494,7 @@ void AlarmDisarm(){
   ESP_ARMED = false;
   ESP_FIRED = false;
   ESP_FIRED_DELAY = false;
+  ESP_ARM_DELAY = false;
   for(int i=0; i < SIZEOF_ZONE; i++){
     ZONE_COUNT[i] = 0;
     ZONE_TRIGGERED[i] = false;
@@ -1518,6 +1521,7 @@ void AlarmReArm(){
   ESP_ARMED = true;
   ESP_FIRED = false;
   ESP_FIRED_DELAY = false;
+  ESP_ARM_DELAY = false;
   for(int i=0; i < SIZEOF_SIREN; i++){
     SIREN_TIMEOUT[i] = false;
     ZONE_FIRSTDELAY[i] = false;
@@ -1844,6 +1848,13 @@ bool Read_Zones_State(){
       if (alarmConfig.Zone[i].Enabled && !ZONE_DISABLED[i])
       {
         s = digitalRead(GPIO_ID_PIN(ZONE_PIN[i]));
+        if (ESP_ARM_DELAY)
+        {
+          if ((RTCmillis() - ESP_ARM_DELAY_MILLIS)/1000 > alarmConfig.LocalArmDelaySecs){
+            AlarmArm();
+            ESP_ARM_DELAY = false;
+          }
+        }
         if (ZONE_FIREDELAY[i])                                           //Was previously triggered a delayed zone
         {
           if ((RTCmillis() - ZONE_FIREDELAY_MILLIS[i])/1000 > alarmConfig.Zone[i].DelayOnSecs){
@@ -1864,7 +1875,8 @@ bool Read_Zones_State(){
             if (ZONE_STATE[i] != s){                              //new pressed
               DEBUG_PRINTLN("Push button pressed!");
               if (!ESP_ARMED){
-                AlarmArm();
+                ESP_ARM_DELAY = true;                             //local arm => localdelayarm
+                ESP_ARM_DELAY_MILLIS = RTCmillis();
               } else {
                 AlarmDisarm();
               }

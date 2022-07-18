@@ -41,6 +41,7 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 - How to arm / disarm?:
 -   Sending an sms
 -   Calling
+-   pushbutton
 - SMS to ask por battery voltage.
 - after ESP_FIREDTOUT, whait alarmConfig.AutoArmDelaySecs to rearm the alarm
 - Read battery voltage periodicaly and call in case of low charge.
@@ -57,14 +58,14 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 -   Emit a beep when arming or disarming. DONE
 -   To be a flashing LED when the alarm is armed.DONE
 -   Not delayed to sound as soon as a delayed zone gets triggered (before delay time occurs) and during the activation delay
-
-## Pending
-
-- TriggerNC propertie of zones not working
 - New Zones properties:
 -   Push button (to arm/disarm/fire alarm)
 - New Alarm Properties:
 -   Activation delay
+
+## Pending
+
+- TriggerNC propertie of zones not working
 - To be able to modify properties sending sms
 - On wifi a text box to send sms wo sending sms
 - Debug o wifi on demand
