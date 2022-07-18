@@ -237,6 +237,7 @@ bool ESP_WIFI = true;      //Wifi enabled during start up (120 secs)
 bool ESP_DISARMED = false;  //Alarm disarmed
 bool ESP_ARMED = false;     //Alarm armed
 bool ESP_FIRED = false;     //Alarm fired (siren activated)
+bool ESP_FIRED_DELAY = false; //Alarm fired from a delayed zone
 uint32_t ESP_FIRED_MILLIS;  //Alarm fired millis
 //bool ESP_FIREDTOUT = false; //Alarm fired time out (siren silenced after max siren time)
 bool ESP_READYTOSLEEP = false;
@@ -588,7 +589,7 @@ void AlarmLoop()
 
     //write outputs:
     for (int i=0; i < SIZEOF_SIREN; i++){
-      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && ESP_FIRED && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){ // && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis)
+      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && (ESP_FIRED || (ESP_FIRED_DELAY && !alarmConfig.Siren[i].Delayed)) && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){ // && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis)
         //pinMode(SIREN_PIN[i], OUTPUT);
         digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
         /*if (i==1){
@@ -1490,6 +1491,7 @@ void parseData(String buff)
 void AlarmDisarm(){
   ESP_ARMED = false;
   ESP_FIRED = false;
+  ESP_FIRED_DELAY = false;
   for(int i=0; i < SIZEOF_ZONE; i++){
     ZONE_COUNT[i] = 0;
     ZONE_TRIGGERED[i] = false;
@@ -1515,6 +1517,7 @@ void AlarmArm(){
 void AlarmReArm(){
   ESP_ARMED = true;
   ESP_FIRED = false;
+  ESP_FIRED_DELAY = false;
   for(int i=0; i < SIZEOF_SIREN; i++){
     SIREN_TIMEOUT[i] = false;
     ZONE_FIRSTDELAY[i] = false;
@@ -1846,6 +1849,7 @@ bool Read_Zones_State(){
           if ((RTCmillis() - ZONE_FIREDELAY_MILLIS[i])/1000 > alarmConfig.Zone[i].DelayOnSecs){
             AlarmFire();
             ZONE_FIREDELAY[i] = false;
+            ESP_FIRED_DELAY = false;
           }
         }
         if (ZONE_FIRSTDELAY[i])
@@ -1867,6 +1871,7 @@ bool Read_Zones_State(){
               if (alarmConfig.Zone[i].DelayOnSecs > 0){
                 ZONE_FIREDELAY[i] = true;
                 ZONE_FIREDELAY_MILLIS[i] = RTCmillis();
+                ESP_FIRED_DELAY = true;
               }
               else
               {
@@ -1877,6 +1882,7 @@ bool Read_Zones_State(){
             {
               ZONE_FIREDELAY[i] = true;
               ZONE_FIREDELAY_MILLIS[i] = RTCmillis();
+              ESP_FIRED_DELAY = true;
             }
             if (!ZONE_FIREDELAY[i] && !ZONE_FIRSTDELAY[i]) {                                  //No delay on nor first advise
               AlarmFire();

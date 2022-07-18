@@ -46,10 +46,6 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 -   RESULT: TX consumes 1mA more when LOW as OUTPUT
 -   RESULT: RX consumes 12mA more when LOW as OUTPUT
 - Test if SoftwareSerial can work with RX (GPIO3) and TX (GPIO1) inverted. YES!!! IT WORKS!!!!
-
-## Pending
-
-- TriggerNC propertie of zones not working
 - BatteryLow properties:
 -   Min Battery
 -   Max Battery
@@ -58,12 +54,15 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 - New siren properties:
 -   Emit a beep when arming or disarming. DONE
 -   To be a flashing LED when the alarm is armed.DONE
+
+## Pending
+
+- TriggerNC propertie of zones not working
 -   Not delayed to sound as soon as a delayed zone gets triggered (before delay time occurs) and during the activation delay
 - New Zones properties:
 -   Push button (to arm/disarm/fire alarm)
 - New Alarm Properties:
 -   Activation delay
-- Add AutoReArmDelaySecs (when the alarm was fired and not rearmed manually and the zones are not activated)
 - To be able to modify properties sending sms
 - On wifi a text box to send sms wo sending sms
 - Debug o wifi on demand
