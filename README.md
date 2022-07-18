@@ -57,7 +57,7 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 -   CALL
 - New siren properties:
 -   Emit a beep when arming or disarming. DONE
--   To be a flashing LED when the alarm is armed
+-   To be a flashing LED when the alarm is armed.DONE
 -   Not delayed to sound as soon as a delayed zone gets triggered (before delay time occurs) and during the activation delay
 - New Zones properties:
 -   Push button (to arm/disarm/fire alarm)

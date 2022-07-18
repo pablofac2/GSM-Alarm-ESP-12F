@@ -193,8 +193,8 @@ struct propAlarm {  //361     MEDIDO PACKED:  //  MEDIDO SIN PACKED: 386    __at
   char OpPass[SIZEOF_PASS+1]; //5
   uint16_t AutoArmDelaySecs;  //2 Delay to rearm after fired
   uint16_t LocalArmDelaySecs;  //2 Delay to arm when armed localy
-  uint16_t BatteryAlertV;  //2 Min battery voltage x10 (12.5v is 125)
-  uint16_t BatteryResetV;  //2 Reset battery voltage x10
+  float BatteryAlertV;  //2 Min battery voltage
+  float BatteryResetV;  //2 Reset battery voltage
   propZone Zone[SIZEOF_ZONE]; //5*26 = 130
   propSiren Siren[SIZEOF_SIREN]; //3*19 = 57
   propCaller Caller;  //160
@@ -372,6 +372,7 @@ void Read_Ring_State();
 bool SirenOnPeriod(int i, uint32_t ms);
 void SirenBeepBeep();
 void SirenBeep();
+void BatteryLowCallAdvise();
 
 void setup() {
 //usar otra posición de memoria para saber si estaba armada o no la alarma por si se corta la energía
@@ -494,13 +495,13 @@ void loop() {
     espFiredPrev = false;
 
   //Check battery voltage
-  if (!ESP_LOWBATTERY && readVoltage() < ESP_VOLTAGE_MIN){
+  if (!ESP_LOWBATTERY && readVoltage() < alarmConfig.BatteryAlertV){
     DEBUG_PRINTLN(F("Low battery detected, calling and texting..."));
     ESP_LOWBATTERY = true;
     BatteryLowSmsAdvise();
-    AlarmFiredCallAdvise();
+    BatteryLowCallAdvise();
   }
-  else if (ESP_LOWBATTERY && readVoltage() > ESP_VOLTAGE_RESET){
+  else if (ESP_LOWBATTERY && readVoltage() > alarmConfig.BatteryResetV){
     ESP_LOWBATTERY = false;
   }
 
@@ -683,6 +684,15 @@ void InsertExtractLine(String description, String &text, uint16_t &ins_ext, bool
     ins_ext = (uint16_t)temp.toInt();
   }
 }
+void InsertExtractLine(String description, String &text, float &ins_ext, bool insert){
+  if (insert)
+    InsertLastLine(description, text, String(ins_ext));
+  else{
+    String temp;
+    ExtractFirstLine(description, text, temp);
+    ins_ext = temp.toFloat();
+  }
+}
 void InsertExtractLine(String description, String &text, bool &ins_ext, bool insert){
   if (insert)
     InsertLastLine(description, text, ins_ext? "1" : "0");
@@ -722,8 +732,8 @@ void ConfigDefault(propAlarm &pa){
   temp.toCharArray(pa.OpPass, temp.length()+1);
   pa.AutoArmDelaySecs = 3600;  //1hs
   pa.LocalArmDelaySecs = 20;
-  pa.BatteryAlertV = 120;
-  pa.BatteryResetV = 125;
+  pa.BatteryAlertV = 12;
+  pa.BatteryResetV = 12.5;
   for(unsigned int i = 0; i < SIZEOF_ZONE; i++){
     pa.Zone[i].Enabled = true;
     pa.Zone[i].AutoDisable = false;
@@ -807,8 +817,8 @@ void ConfigStringCopy(propAlarm &pa, String &str, bool toString){
   if (toString) str="";
   InsertExtractLine("Auto Arm delay secs", str, pa.AutoArmDelaySecs, toString);
   InsertExtractLine("Local Arm delay secs", str, pa.LocalArmDelaySecs, toString);
-  InsertExtractLine("Battery Alert x10", str, pa.BatteryAlertV, toString);
-  InsertExtractLine("Battery Reset x10", str, pa.BatteryResetV, toString);
+  InsertExtractLine("Battery Alert", str, pa.BatteryAlertV, toString);
+  InsertExtractLine("Battery Reset", str, pa.BatteryResetV, toString);
   InsertExtractLine("GSM Enabled", str, pa.Caller.GSMEnabled, toString);
   InsertExtractLine("SMS Response", str, pa.Caller.SMSResponse, toString);
   InsertExtractLine("SMS On Alarm", str, pa.Caller.SMSOnAlarm, toString);
@@ -962,7 +972,7 @@ void Sim800_ManageCommunication(){
 }
 
 void BatteryLowSmsAdvise(){
-  if (alarmConfig.Caller.SMSResponse || alarmConfig.Caller.SMSOnAlarm){
+  if (alarmConfig.Caller.SMSOnAlert){
     Sim800_disableSleep();
     String msg="BATTERY LOW!";
     msg += AlarmStatusText();
@@ -1009,6 +1019,18 @@ String AlarmStatusText(){
     }
   }
   return msg;
+}
+
+void BatteryLowCallAdvise(){
+  if (alarmConfig.Caller.CALLOnAlert){
+    Sim800_disableSleep();
+    String msg="BATTERY LOW!";
+    msg += AlarmStatusText();
+    for (int i=0; i < SIZEOF_CALLPHONE; i++){
+      CallReponse(msg, String(alarmConfig.Caller.CALLPhone[i].Number), true);
+      //Sim800_ManageCommunication();   //Before callen next number, check for new sms
+    }
+  }
 }
 
 void AlarmFiredCallAdvise(){
@@ -1724,7 +1746,7 @@ bool SmsReponse(String text, String phone, bool forced){
 void CallReponse(String text, String phone, bool forced){
   DEBUG_PRINTLN(text);
   if (alarmConfig.Caller.GSMEnabled &&
-    ((alarmConfig.Caller.CALLOnAlarm && (ESP_FIRED || ESP_LOWBATTERY)) || forced) &&
+    ((alarmConfig.Caller.CALLOnAlarm && ESP_FIRED) || forced) &&
     phone.length()>10)
   {
     Sim800_WriteCommand("ATD" + phone + ";");//make call  println evita tener q poner \r al final  //Your phone number don't forget to include your country code, example +212123456789"
