@@ -115,7 +115,7 @@ String HTMLConfig = "";
 
 #define WIFI_DURATION_MS 60000 // 300000 //Wifi setup duration: 5minutes
 #define ESP_ZONES_READ_MS 500    //frequency reading Zones
-#define ESP_BLINKINGON_MS 500    //blinking led on time
+#define ESP_BLINKINGON_MS 200    //blinking led on time
 #define ESP_BLINKINGOFF_MS 1000  //blinking led off time
 #define ESP_BLINKINGONFIRED_MS 200    //blinking led on time
 #define ESP_BLINKINGOFFFIRED_MS 500  //blinking led off time
@@ -591,27 +591,27 @@ void AlarmLoop()
 
     //write outputs:
     for (int i=0; i < SIZEOF_SIREN; i++){
-      if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && (ESP_FIRED || (ESP_FIRED_DELAY && !alarmConfig.Siren[i].Delayed)) && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){ // && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis)
-        //pinMode(SIREN_PIN[i], OUTPUT);
-        digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
-        /*if (i==1){
-          DEBUG_PRINTLN(F("SIREN 1 ") + String(SIREN_DEF[i]));
-          digitalWrite(D4, LOW);
-        }*/
-        if (ESP_FIRED){
-          if ((lastReadMillis > ESP_FIRED_MILLIS) && ((lastReadMillis - ESP_FIRED_MILLIS) > (1000*(uint32_t)alarmConfig.Siren[i].MaxDurationSecs))){
-            SIREN_TIMEOUT[i] = true;
+      if (alarmConfig.Siren[i].BlinkIfArmed)
+      {
+        if (SIREN_FORCED[i])
+          digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+        else if (SIREN_DISABLED[i] || !alarmConfig.Siren[i].Enabled || !ESP_ARMED)
+          digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+      }
+      else
+      {
+        if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && (ESP_FIRED || (ESP_FIRED_DELAY && !alarmConfig.Siren[i].Delayed)) && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){ // && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis)
+          digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
+          if (ESP_FIRED){
+            if ((lastReadMillis > ESP_FIRED_MILLIS) && ((lastReadMillis - ESP_FIRED_MILLIS) > (1000*(uint32_t)alarmConfig.Siren[i].MaxDurationSecs))){
+              SIREN_TIMEOUT[i] = true;
+            }
           }
         }
-      }
-      else{
-        //pinMode(GPIO_ID_PIN(SIREN_PIN[i]), INPUT);  //************************************************************
-        digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
-        /*if (i==1){
-          DEBUG_PRINTLN(F("SIREN 0 ") + String(SIREN_DEF[i]));
-          pinMode(D4, OUTPUT);
-          digitalWrite(D4, HIGH);
-        }*/
+        else
+        {
+          digitalWrite(SIREN_PIN[i], SIREN_DEF[i]);
+        }
       }
     }
 
