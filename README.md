@@ -59,9 +59,15 @@ If the SMS is sent from a known phone, it is not mandatory to write the password
 -   Push button (to arm/disarm/fire alarm)
 - New Alarm Properties:
 -   Activation delay
+- SMS to enable again wifi
 
 ## Pending
 
+- fix bug: siren stops sounding, rearming too soon?
+- sensors history over wifi
+- read again all sms when a new one comes
+- siren sound on first advice property
+- simultaneous trigger window time
 - TriggerNC propertie of zones not working
 - To be able to modify properties sending sms
 - On wifi a text box to send sms wo sending sms
