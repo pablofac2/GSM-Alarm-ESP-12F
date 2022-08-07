@@ -873,6 +873,9 @@ void ConfigWifi(){
   //WiFi.softAPConfig(webserver_IP, webserver_IP, IPAddress(255, 255, 255, 0));   // subnet FF FF FF 00  
   bool res = WiFi.softAP(AP_SSID, AP_PASS);  //Remove the password parameter, if you want the AP (Access Point) to be open
   DelayYield(100);
+  WIFI_TOMEOUT_MILLIS = RTCmillis();
+  ESP_WIFI = true;
+  ESP_READYTOSLEEP = false;
 
   DEBUG_PRINTLN("Wifi result: " + String(res?"OK!":"FAILED!")); //***********************************************************
   //IPAddress IP = ;
@@ -1638,14 +1641,30 @@ void doAction(String msg, String phone){
     AlarmDisarm();
     SmsReponse("Alarm Disarmed", phone, false);
   }
+  else if(msg == "r")
+  {
+    if (ReadyToArm){
+      AlarmReArm();
+      SmsReponse("Alarm ReArmed", phone, false);
+    }
+    else {
+      text = "Alarm NOT ReArmed, Zone Triggered";
+      text += AlarmStatusText();
+      SmsReponse(text, phone, false);
+    }
+  }
   else if(msg == "f")
   {
     AlarmFire();
     //SmsReponse("Alarm Fired", phone, false);
   }
+  else if(msg == "w")   //request wifi config
+  {
+    ConfigWifi();
+  }
   else if(msg == "h" || msg == "help" || msg == "?")
   {
-    SmsReponse("s status, a arm, d disarm, f fire, zdZ/zeZ/sdS/seS/sfS Zone/Siren disable/enable/force, pP?/pP: param ask/change", phone, true);
+    SmsReponse("s status, a/d/r arm/dis/re, f fire, zdZ/zeZ/sdS/seS/sfS Zone/Siren disable/enable/force, pP?/pP: param ask/change", phone, true);
   }
   else if(msg.substring(0,1) == "z")
   {
