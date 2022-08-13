@@ -520,7 +520,7 @@ void loop() {
   }
 
   //Auto Alarm Arm
-  if (ESP_FIRED && (RTCmillis() - ESP_FIRED_MILLIS > 1000*(uint32_t)alarmConfig.AutoArmDelaySecs)){
+  if (ESP_FIRED && (RTCmillis() - ESP_FIRED_MILLIS > (uint32_t)1000*(uint32_t)alarmConfig.AutoArmDelaySecs)){
     if (ReadyToArm)
       AlarmReArm();
   }
@@ -603,7 +603,7 @@ void AlarmLoop()
         if (SIREN_FORCED[i] || (alarmConfig.Siren[i].Enabled && !SIREN_DISABLED[i] && (ESP_FIRED || (ESP_FIRED_DELAY && !alarmConfig.Siren[i].Delayed)) && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis))){ // && !SIREN_TIMEOUT[i] && SirenOnPeriod(i,lastReadMillis)
           digitalWrite(SIREN_PIN[i], SIREN_DEF[i]==HIGH? LOW : HIGH);
           if (ESP_FIRED){
-            if ((lastReadMillis > ESP_FIRED_MILLIS) && ((lastReadMillis - ESP_FIRED_MILLIS) > (1000*(uint32_t)alarmConfig.Siren[i].MaxDurationSecs))){
+            if ((lastReadMillis > ESP_FIRED_MILLIS) && ((lastReadMillis - ESP_FIRED_MILLIS) > ((uint32_t)1000*(uint32_t)alarmConfig.Siren[i].MaxDurationSecs))){
               SIREN_TIMEOUT[i] = true;
             }
           }
@@ -631,8 +631,8 @@ void AlarmLoop()
 
 bool SirenOnPeriod(int i, uint32_t ms) //Determines if the siren has to be on or off according to pulse / pause
 {
-  uint32_t r = (ms - ESP_FIRED_MILLIS) % (1000*(uint32_t)(alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs));
-  if (r <= (1000*(uint32_t)alarmConfig.Siren[i].PulseSecs)){
+  uint32_t r = (ms - ESP_FIRED_MILLIS) % ((uint32_t)1000*(uint32_t)(alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs));
+  if (r <= ((uint32_t)1000*(uint32_t)alarmConfig.Siren[i].PulseSecs)){
     return true;
   }
   else{
@@ -1214,6 +1214,12 @@ bool Sim800_UnsolicitedResultCode(String line)  //If there is an Unsolicited Res
         {
           DEBUG_PRINTLN("From Sim800 DTMF detected: " + rta);
           Sim800_WriteCommand("AT+CLDTMF=10,\"" + rta + "\"");  //DTMF echo due to really bad reception
+          if(ESP_ARMED){
+            Sim800_WriteCommand("AT+CLDTMF=10,\"1\"");
+          } else {
+            Sim800_WriteCommand("AT+CLDTMF=10,\"2\"");
+            Sim800_WriteCommand("AT+CLDTMF=10,\"2\"");
+          }
           if(DTMFs==String(alarmConfig.OpPass)){
             if (!SIM_WAITINGDTMF_ADA){
               SIM_WAITINGDTMF_ADA = true;
@@ -1933,14 +1939,14 @@ bool Read_Zones_State(){
         s = digitalRead(GPIO_ID_PIN(ZONE_PIN[i]));
         if (ESP_ARM_DELAY)
         {
-          if ((RTCmillis() - ESP_ARM_DELAY_MILLIS)/1000 > alarmConfig.LocalArmDelaySecs){
+          if ((RTCmillis() - ESP_ARM_DELAY_MILLIS)/(uint32_t)1000 > (uint32_t)alarmConfig.LocalArmDelaySecs){
             AlarmArm();
             ESP_ARM_DELAY = false;
           }
         }
         if (ZONE_FIREDELAY[i])                                           //Was previously triggered a delayed zone
         {
-          if ((RTCmillis() - ZONE_FIREDELAY_MILLIS[i])/1000 > alarmConfig.Zone[i].DelayOnSecs){
+          if ((RTCmillis() - ZONE_FIREDELAY_MILLIS[i])/(uint32_t)1000 > (uint32_t)alarmConfig.Zone[i].DelayOnSecs){
             AlarmFire();
             ZONE_FIREDELAY[i] = false;
             ESP_FIRED_DELAY = false;
@@ -1948,7 +1954,7 @@ bool Read_Zones_State(){
         }
         if (ZONE_FIRSTDELAY[i])
         {
-          if ((RTCmillis() - ZONE_FIRSTDELAY_MILLIS[i])/1000 > alarmConfig.Zone[i].FirstAdviseResetSecs){
+          if ((RTCmillis() - ZONE_FIRSTDELAY_MILLIS[i])/(uint32_t)1000 > (uint32_t)alarmConfig.Zone[i].FirstAdviseResetSecs){
             ZONE_FIRSTDELAY[i] = false;                                       //first advise expired
           }
         }
@@ -1971,12 +1977,12 @@ bool Read_Zones_State(){
             ZONE_TRIGGERED[i] = true;
             if (ESP_ARMED && !ESP_FIRED && !ZONE_FIREDELAY[i])
             {
-              if (!ZONE_FIRSTDELAY[i] && alarmConfig.Zone[i].FirstAdviseDurationSecs > 0){  //Zone with first advise. Needs to be triggering at least FirstAdviseDurationSecs, after that the alarm will be fired
+              if (!ZONE_FIRSTDELAY[i] && alarmConfig.Zone[i].FirstAdviseDurationSecs > (uint16_t)0){  //Zone with first advise. Needs to be triggering at least FirstAdviseDurationSecs, after that the alarm will be fired
                 ZONE_FIRSTDELAY[i] = true;
                 ZONE_FIRSTDELAY_MILLIS[i] = RTCmillis();
               }
-              else if (ZONE_FIRSTDELAY[i] && (RTCmillis() - ZONE_FIRSTDELAY_MILLIS[i])/1000 > alarmConfig.Zone[i].FirstAdviseDurationSecs){
-                if (alarmConfig.Zone[i].DelayOnSecs > 0){
+              else if (ZONE_FIRSTDELAY[i] && (RTCmillis() - ZONE_FIRSTDELAY_MILLIS[i])/(uint32_t)1000 > (uint32_t)alarmConfig.Zone[i].FirstAdviseDurationSecs){
+                if (alarmConfig.Zone[i].DelayOnSecs > (uint16_t)0){
                   ZONE_FIREDELAY[i] = true;
                   ZONE_FIREDELAY_MILLIS[i] = RTCmillis();
                   ESP_FIRED_DELAY = true;
@@ -1986,7 +1992,7 @@ bool Read_Zones_State(){
                   AlarmFire();                                                 //first advise fires alarm
                 }
               }
-              else if (alarmConfig.Zone[i].DelayOnSecs > 0)              //Zone with delay on
+              else if (alarmConfig.Zone[i].DelayOnSecs > (uint16_t)0)              //Zone with delay on
               {
                 ZONE_FIREDELAY[i] = true;
                 ZONE_FIREDELAY_MILLIS[i] = RTCmillis();
