@@ -520,7 +520,7 @@ void loop() {
   }
 
   //Auto Alarm Arm
-  if (ESP_FIRED && (RTCmillis() - ESP_FIRED_MILLIS > (uint32_t)1000*(uint32_t)alarmConfig.AutoArmDelaySecs)){
+  if (ESP_FIRED && ((RTCmillis() - ESP_FIRED_MILLIS) > ((uint32_t)1000*(uint32_t)alarmConfig.AutoArmDelaySecs))){
     if (ReadyToArm)
       AlarmReArm();
   }
@@ -631,6 +631,7 @@ void AlarmLoop()
 
 bool SirenOnPeriod(int i, uint32_t ms) //Determines if the siren has to be on or off according to pulse / pause
 {
+  return true;
   uint32_t r = (ms - ESP_FIRED_MILLIS) % ((uint32_t)1000*(uint32_t)(alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs));
   if (r <= ((uint32_t)1000*(uint32_t)alarmConfig.Siren[i].PulseSecs)){
     return true;
