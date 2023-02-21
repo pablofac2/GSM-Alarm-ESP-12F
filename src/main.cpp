@@ -84,6 +84,16 @@ const char config_html[] PROGMEM = R"rawliteral(
   </form><br>
   <iframe style="display:none" name="hidden-form"></iframe>
 </body></html>)rawliteral";
+const char test_html[] PROGMEM = R"rawliteral(
+<!DOCTYPE HTML><html><head>
+  <title>Alarm Test Form</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="refresh" content="1">
+  </head><body>
+    IOs Status:<br>
+    <textarea name="HTMLTest" style="height: 800px; width: 300px;">%HTMLTest%</textarea><br>
+</body></html>)rawliteral";
+
 //In this case, the target attribute and an <iframe> are used so that you remain on the same page after submitting the form.
 //The name that shows up for the input field contains a placeholder %inputString% that will then be replaced by the current value of the inputString variable.
 //The onclick=”submitMessage()” calls the submitMessage() JavaScript function after clicking the “Submit” button.
@@ -91,6 +101,7 @@ const char config_html[] PROGMEM = R"rawliteral(
 //The action attribute specifies where to send the data inserted on the form after pressing submit. In this case, it makes an HTTP GET request to /get?input1=value. The value refers to the text you enter in the input field.
 String HTMLAdminPass = "";
 String HTMLConfig = "";
+String HTMLTest = "";
 
 #define TIMEOUT 99
 #define ERROR 0
@@ -898,6 +909,13 @@ void ConfigWifi(){
     }
   });
 
+  server.on("/test", HTTP_GET, [](AsyncWebServerRequest *request){  //Test page /config
+    if (HTMLAdminPass == String(alarmConfig.AdminPass)){
+      WIFI_TOMEOUT_MILLIS = RTCmillis();
+      request->send_P(200, "text/html", test_html, processor);
+    }
+  });
+
   server.on("/pass", HTTP_GET, [](AsyncWebServerRequest *request){ //Send a GET request to <ESP_IP>/pass?HTMLAdminPass=<inputMessage>
     if (request->hasParam("htmladminpass")) {
       WIFI_TOMEOUT_MILLIS = RTCmillis();
@@ -905,7 +923,7 @@ void ConfigWifi(){
       DEBUG_PRINTLN(F("htmladminpass = ") + HTMLAdminPass);
     }
     if (HTMLAdminPass == String(alarmConfig.AdminPass)){
-      request->send(200, "text/html", "Admin Password ok.<br><a href=\"/config\">Go to Config Page</a>");
+      request->send(200, "text/html", "Admin Password ok. <br><a href=\"/config\">Go to Config Page</a> <a href=\"/test\">Go to Test Page</a>");
     } else {
       request->send(200, "text/html", "Admin Password NOT OK.<br><a href=\"/\">Return to Home Page</a>");
     }
@@ -921,6 +939,7 @@ void ConfigWifi(){
       ConfigStringCopy(alarmConfig, HTMLConfig, true);    //Parse alarmConfig to String
     }
   });
+
   server.onNotFound(notFound);
   server.begin(); // Start server
 }
@@ -933,6 +952,13 @@ String processor(const String& var){
   }
   else if(var == "HTMLConfig"){
     return HTMLConfig;
+  }
+  else if(var == "HTMLTest"){
+    HTMLTest = "";
+    for (int i = 0; i < SIZEOF_ZONE; i++){
+      HTMLTest += "Zone" + String(i) + ": " + String(ZONE_STATE[i]) + ", " + String(ZONE_COUNT[i]) + "\r";
+    }
+    return HTMLTest;
   }
   return String();
 }
@@ -2003,7 +2029,7 @@ bool Read_Zones_State(){
                 AlarmFire();
               }
             }
-            if (ESP_ARMED && ZONE_STATE[i] != s){       //Zone had a new trigger -> register it
+            if (ZONE_STATE[i] != s){       //Zone had a new trigger -> register it  ANTES: ESP_ARMED && 
               ZONE_COUNT[i]++;
               DEBUG_PRINTLN("Zone" + String(i) + "triggered!");
             }
