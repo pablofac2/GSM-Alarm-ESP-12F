@@ -124,7 +124,7 @@ String HTMLTest = "";
 #define DEBUGbaudrate 115200
 #define SLEEP_TIME_MS 100 // 100 mili seconds of light sleep periods between input readings
 
-#define WIFI_DURATION_MS 60000 // 300000 //Wifi setup duration: 5minutes
+#define WIFI_DURATION_MS 90000 //Wifi setup duration: 1.5minutes
 #define ESP_ZONES_READ_MS 500    //frequency reading Zones
 #define ESP_BLINKINGON_MS 200    //blinking led on time
 #define ESP_BLINKINGOFF_MS 1000  //blinking led off time
@@ -303,6 +303,7 @@ bool ReadyToArm = false;
 #endif
 bool ZONE_DISABLED[SIZEOF_ZONE]; //if the zone has auto disable function enabled, this array will mask them.
 uint8_t ZONE_COUNT[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
+uint8_t ZONE_COUNT_TOTAL[SIZEOF_ZONE]; //to count the number of activations since the alarm was last armed.
 int ZONE_STATE[SIZEOF_ZONE]; //the state of the zones (las/previous reading).
 bool ZONE_TRIGGERED[SIZEOF_ZONE]; //the zone is triggered.
 bool ZONE_FIRSTDELAY[SIZEOF_ZONE]; //Alarm first delay (if zone triggers again, it will be fired)
@@ -418,6 +419,7 @@ void setup() {
     pinMode(GPIO_ID_PIN(ZONE_PIN[i]), INPUT_PULLUP);  //INPUT_PULLUP *******************
     ZONE_DISABLED[i] = false;
     ZONE_COUNT[i] = 0;
+    ZONE_COUNT_TOTAL[i] = 0;
     ZONE_TRIGGERED[i] = false;
     ZONE_FIRSTDELAY[i] = false;
     ZONE_FIREDELAY[i] = false;
@@ -471,7 +473,7 @@ void setup() {
 
   ConfigWifi(); //Wifi initializes after EEPROM reading to have loaded the Alarm Config
   DEBUG_PRINTLN(F("Wifi Conectado")); 
-  DelayYield(WIFI_DURATION_MS);         //I need to stop execution here to give time to connect to the AP, because following code brakes the WIFI somehow!!!! **********
+  DelayYield(30000);         //WIFI_DURATION_MS I need to stop execution here to give time to connect to the AP, because following code brakes the WIFI somehow!!!! **********
 
   Sim800_Connect();
   DEBUG_PRINTLN(F("**** Conectado ****"));
@@ -642,12 +644,18 @@ void AlarmLoop()
 
 bool SirenOnPeriod(int i, uint32_t ms) //Determines if the siren has to be on or off according to pulse / pause
 {
-  return true;
-  uint32_t r = (ms - ESP_FIRED_MILLIS) % ((uint32_t)1000*(uint32_t)(alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs));
-  if (r <= ((uint32_t)1000*(uint32_t)alarmConfig.Siren[i].PulseSecs)){
+  //return true;
+  uint32_t e = ms - ESP_FIRED_MILLIS;
+  uint32_t t = 1000*(alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs);
+  uint32_t p = 1000*alarmConfig.Siren[i].PulseSecs;
+  //uint32_t r = (ms - ESP_FIRED_MILLIS) % ((uint32_t)1000*(uint32_t)(alarmConfig.Siren[i].PulseSecs + alarmConfig.Siren[i].PauseSecs));
+  uint32_t r = e % t;
+  //if (r <= ((uint32_t)1000*(uint32_t)alarmConfig.Siren[i].PulseSecs)){
+  if (r <= p){
     return true;
   }
-  else{
+  else
+  {
     return false;
   }
 }
@@ -954,9 +962,10 @@ String processor(const String& var){
     return HTMLConfig;
   }
   else if(var == "HTMLTest"){
+    WIFI_TOMEOUT_MILLIS = RTCmillis();  //to stay in testing
     HTMLTest = "";
     for (int i = 0; i < SIZEOF_ZONE; i++){
-      HTMLTest += "Zone" + String(i) + ": " + String(ZONE_STATE[i]) + ", " + String(ZONE_COUNT[i]) + "\r";
+      HTMLTest += "Zone" + String(i) + ": " + String(ZONE_STATE[i]) + ", " + String(ZONE_COUNT_TOTAL[i]) + "\r";
     }
     return HTMLTest;
   }
@@ -1033,14 +1042,16 @@ String AlarmStatusText(){
   msg += ", Ready " + String(ReadyToArm?"1":"0");
   msg += ", Bat " + String(readVoltage());
   for (int i = 0; i < SIZEOF_ZONE; i++){
-    if (ZONE_COUNT[i]>0 || ZONE_TRIGGERED[i] || ZONE_DISABLED[i]){
+    if (ZONE_COUNT_TOTAL[i]>0 || ZONE_COUNT[i]>0 || ZONE_TRIGGERED[i] || ZONE_DISABLED[i]){
       msg += ", Zone" + String(i);
       if (ZONE_DISABLED[i])
         msg += " DIS";
       if (ZONE_TRIGGERED[i])
         msg += " TRIG";
       if (ZONE_COUNT[i]>0)
-        msg += " count:" + String(ZONE_COUNT[i]);
+        msg += " cnt:" + String(ZONE_COUNT[i]);
+      if (ZONE_COUNT_TOTAL[i]>0)
+        msg += " cnttot:" + String(ZONE_COUNT_TOTAL[i]);
     }
   }
   for (int i = 0; i < SIZEOF_SIREN; i++){
@@ -1755,6 +1766,7 @@ void doAction(String msg, String phone){
     String prop;
     String res = "";
     String stringConfig = "";
+    int line = 0;
     if (index > 0){
       prop = msg.substring(0,index);
       prop.trim();
@@ -1765,6 +1777,8 @@ void doAction(String msg, String phone){
     } else {
       index = msg.indexOf(":");
       if (index > 0){
+        //Before, it was needed to write the propertie
+        /*
         prop = msg.substring(0,index);
         prop.trim();
         msg.remove(0,index+1);
@@ -1776,6 +1790,30 @@ void doAction(String msg, String phone){
         index = stringConfigLC.indexOf(":", index);
         int j = stringConfigLC.indexOf("\r", index);
         stringConfig = stringConfig.substring(0, index+1) + msg + stringConfig.substring(j);  //replace de new value into the config string
+        ConfigStringCopy(alarmConfig, stringConfig, false);    //Parse String to alarmConfig
+        ConfigToEEPROM(alarmConfig);                      //Write to EEPROM
+        */
+
+        //Now it is the line number, ie: "p23: 5" means parameter on line 23 is 5 now
+        prop = msg.substring(0,index);
+        prop.trim();  //extract line number
+        line = prop.toInt();
+        msg.remove(0,index+1);
+        msg.trim(); //extract value
+        ConfigStringCopy(alarmConfig, stringConfig, true);    //Parse alarmConfig to String
+        //String stringConfigLC = stringConfig;
+        //stringConfigLC.toLowerCase();
+        //Find the line:
+        int j1 = 0;
+        int j2 = 0;
+        int i = 0;
+        while (i < line && j2 >= 0){
+          j1 = j2;  //start of line
+          j2 = stringConfig.indexOf("\r", j1+1); //end of line
+          i++;  //line count
+        }
+        index = stringConfig.indexOf(":", j1);
+        stringConfig = stringConfig.substring(0, index+1) + msg + stringConfig.substring(j2);  //replace de new value into the config string
         ConfigStringCopy(alarmConfig, stringConfig, false);    //Parse String to alarmConfig
         ConfigToEEPROM(alarmConfig);                      //Write to EEPROM
       }
@@ -2038,6 +2076,14 @@ bool Read_Zones_State(){
         else{
           ZONE_TRIGGERED[i] = false;
         }
+
+        //To keep track of the total ammount of changes:
+        if (ZONE_STATE[i] != s){
+          if ((alarmConfig.Zone[i].TriggerNC && s == HIGH) || (!alarmConfig.Zone[i].TriggerNC && s == LOW)){
+            ZONE_COUNT_TOTAL[i]++;
+          }
+        }
+
         ZONE_STATE[i] = s;
       }
     }
@@ -2166,7 +2212,7 @@ void Read_Ring_State(){
 float readVoltage() { // read internal VCC
   //DEBUG_PRINTLN("The internal VCC reads " + String(volts / 1000) + " volts");
   //return ESP.getVcc();
-  return analogRead(A0) * 14.75 / 1000;
+  return analogRead(A0) * 14.75 / 1000; //14.75 for 1.2Mohm and 15.8 for 1.3Mohm
 }
 
 /*void printMillis() {
