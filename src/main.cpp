@@ -2212,7 +2212,7 @@ void Read_Ring_State(){
 float readVoltage() { // read internal VCC
   //DEBUG_PRINTLN("The internal VCC reads " + String(volts / 1000) + " volts");
   //return ESP.getVcc();
-  return analogRead(A0) * 14.75 / 1000; //14.75 for 1.2Mohm and 15.8 for 1.3Mohm
+  return analogRead(A0) * 15.8 / 1000; //14.75 for 1.2Mohm and 15.8 for 1.3Mohm (new ones)
 }
 
 /*void printMillis() {
